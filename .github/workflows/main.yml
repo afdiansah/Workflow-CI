@@ -378,6 +378,29 @@ jobs:
           # Set MLflow tracking URI to local
           export MLFLOW_TRACKING_URI=file://$(pwd)/model_for_docker/mlruns
           
+          echo "🔍 Searching for best model run..."
+          echo "Tracking URI: $MLFLOW_TRACKING_URI"
+          
+          # List all experiments and runs for debugging
+          python -c "
+          import mlflow
+          import os
+          
+          mlflow.set_tracking_uri(os.environ['MLFLOW_TRACKING_URI'])
+          
+          print('Experiments:')
+          experiments = mlflow.search_experiments()
+          for exp in experiments:
+              print(f'  - {exp.name} (ID: {exp.experiment_id})')
+          
+          print('\nAll runs:')
+          runs = mlflow.search_runs()
+          if not runs.empty:
+              print(runs[['run_id', 'experiment_id']].head())
+          else:
+              print('No runs found!')
+          "
+          
           # Find the best run ID
           RUN_ID=$(python -c "
           import mlflow
@@ -396,22 +419,31 @@ jobs:
               exit(1)
           ")
           
-          echo "Best run ID: $RUN_ID"
+          echo "✅ Best run ID: $RUN_ID"
           
           # Build Docker image using MLflow
           IMAGE_NAME="${DOCKER_USERNAME}/heart-disease-model"
           IMAGE_TAG="${MODEL_TAG}-$(date +%Y%m%d)"
           
-          echo "Building Docker image: ${IMAGE_NAME}:${IMAGE_TAG}"
+          echo "🐳 Building Docker image: ${IMAGE_NAME}:${IMAGE_TAG}"
+          echo "   Model URI: runs:/${RUN_ID}/model"
           
+          # Build without --enable-mlserver for simplicity
           mlflow models build-docker \
             --model-uri "runs:/${RUN_ID}/model" \
-            --name "${IMAGE_NAME}" \
-            --enable-mlserver
+            --name "${IMAGE_NAME}"
+          
+          echo "✅ Docker image built successfully"
           
           # Tag with version and latest
+          echo "🏷️  Tagging images..."
           docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}"
           docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${MODEL_TAG}"
+          
+          echo "✅ Tags created:"
+          echo "   - ${IMAGE_NAME}:latest"
+          echo "   - ${IMAGE_NAME}:${IMAGE_TAG}"
+          echo "   - ${IMAGE_NAME}:${MODEL_TAG}"
           
           echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
           echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
