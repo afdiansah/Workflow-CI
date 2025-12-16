@@ -212,6 +212,55 @@ jobs:
             cat final_model_comparison.csv >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
+      
+      - name: Prepare artifacts for commit
+        run: |
+          mkdir -p artifacts_permanent
+          
+          # Copy final comparison
+          if [ -f "final_model_comparison.csv" ]; then
+            cp final_model_comparison.csv artifacts_permanent/
+          fi
+          
+          # Copy all downloaded artifacts
+          if [ -d "artifacts" ]; then
+            cp -r artifacts/* artifacts_permanent/
+          fi
+          
+          # Create timestamp and metadata
+          echo "# Training Run - $(date '+%Y-%m-%d %H:%M:%S')" > artifacts_permanent/README.md
+          echo "" >> artifacts_permanent/README.md
+          echo "**Commit:** ${{ github.sha }}" >> artifacts_permanent/README.md
+          echo "**Branch:** ${{ github.ref_name }}" >> artifacts_permanent/README.md
+          echo "**Workflow:** ${{ github.run_id }}" >> artifacts_permanent/README.md
+          echo "**Triggered by:** ${{ github.actor }}" >> artifacts_permanent/README.md
+          echo "" >> artifacts_permanent/README.md
+          echo "## Results" >> artifacts_permanent/README.md
+          if [ -f "final_model_comparison.csv" ]; then
+            echo '```' >> artifacts_permanent/README.md
+            cat final_model_comparison.csv >> artifacts_permanent/README.md
+            echo '```' >> artifacts_permanent/README.md
+          fi
+      
+      - name: Commit artifacts to artifacts branch
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+          
+          # Checkout or create artifacts branch
+          git fetch origin artifacts || true
+          git checkout -B artifacts || git checkout --orphan artifacts
+          
+          # Clear existing content (keep only new artifacts)
+          git rm -rf . || true
+          
+          # Copy new artifacts
+          cp -r artifacts_permanent/* .
+          
+          # Commit and push
+          git add .
+          git commit -m "🤖 Auto-commit: Training artifacts from run ${{ github.run_id }}" || echo "No changes to commit"
+          git push origin artifacts --force
 
   notify:
     name: Notification
