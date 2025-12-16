@@ -164,11 +164,20 @@ def main():
     """
     Fungsi utama untuk menjalankan pipeline training
     """
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Train ML models for Heart Disease Classification')
+    parser.add_argument('--model_type', type=str, default='all',
+                      choices=['all', 'Logistic_Regression', 'Random_Forest', 'Gradient_Boosting', 
+                              'Decision_Tree', 'K_Nearest_Neighbors', 'Support_Vector_Machine'],
+                      help='Model to train (default: all)')
+    args = parser.parse_args()
+    
     print("\n" + "="*70)
     print("🎯 MACHINE LEARNING MODEL TRAINING WITH MLFLOW")
     print("="*70)
     print("Dataset: Heart Disease")
     print("Author: Raifal Bagus Afdiansah")
+    print(f"Model Type: {args.model_type}")
     print("="*70 + "\n")
     
     # Set MLflow tracking URI ke folder lokal
@@ -193,8 +202,8 @@ def main():
     preprocessed_path = os.path.join('Heart_Disease_preprocessing.csv')
     X_train, X_test, y_train, y_test = load_preprocessed_data(preprocessed_path)
     
-    # Define models to train
-    models = [
+    # Define all available models
+    all_models = [
         {
             'name': 'Logistic_Regression',
             'model': LogisticRegression(random_state=42, max_iter=1000),
@@ -227,10 +236,19 @@ def main():
         }
     ]
     
-    # Train all models with MLflow tracking
+    # Filter models based on model_type argument
+    if args.model_type == 'all':
+        models_to_train = all_models
+    else:
+        models_to_train = [m for m in all_models if m['name'] == args.model_type]
+        if not models_to_train:
+            print(f"❌ Model '{args.model_type}' not found!")
+            sys.exit(1)
+    
+    # Train selected models with MLflow tracking
     all_results = []
     
-    for model_config in models:
+    for model_config in models_to_train:
         try:
             metrics = train_model_with_mlflow(
                 X_train, X_test, y_train, y_test,
