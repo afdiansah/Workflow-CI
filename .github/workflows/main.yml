@@ -270,11 +270,28 @@ jobs:
     name: Build and Push Docker Image
     needs: evaluate
     runs-on: ubuntu-latest
-    if: success()
+    # Only run if evaluate succeeded AND Docker secrets are available
+    if: success() && secrets.DOCKER_USERNAME != '' && secrets.DOCKER_PASSWORD != ''
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      
+      - name: Verify Docker Hub credentials
+        run: |
+          if [ -z "${{ secrets.DOCKER_USERNAME }}" ]; then
+            echo "❌ DOCKER_USERNAME secret is not set!"
+            echo "Please add it in: Repository → Settings → Secrets and variables → Actions"
+            exit 1
+          fi
+          
+          if [ -z "${{ secrets.DOCKER_PASSWORD }}" ]; then
+            echo "❌ DOCKER_PASSWORD secret is not set!"
+            echo "Please add it in: Repository → Settings → Secrets and variables → Actions"
+            exit 1
+          fi
+          
+          echo "✅ Docker Hub credentials are configured"
       
       - name: Set up Python 3.12.7
         uses: actions/setup-python@v5
@@ -455,6 +472,22 @@ jobs:
         run: |
           echo "🐳 Docker image pushed to Docker Hub!"
       
+      - name: Docker Skipped Notification
+        if: needs.docker.result == 'skipped'
+        run: |
+          echo "⚠️ Docker build was skipped"
+          echo ""
+          echo "Possible reasons:"
+          echo "  1. DOCKER_USERNAME secret not set"
+          echo "  2. DOCKER_PASSWORD secret not set"
+          echo ""
+          echo "To enable Docker deployment:"
+          echo "  1. Go to: Repository → Settings → Secrets and variables → Actions"
+          echo "  2. Add secret: DOCKER_USERNAME (your Docker Hub username)"
+          echo "  3. Add secret: DOCKER_PASSWORD (your Docker Hub access token)"
+          echo ""
+          echo "📖 See DOCKER_SETUP.md for detailed instructions"
+      
       - name: Training Failure Notification
         if: needs.train.result == 'failure' || needs.evaluate.result == 'failure'
         run: |
@@ -467,3 +500,9 @@ jobs:
         run: |
           echo "⚠️ Docker build/push failed!"
           echo "Training was successful but Docker image not created."
+          echo ""
+          echo "Common issues:"
+          echo "  1. Check DOCKER_USERNAME and DOCKER_PASSWORD secrets"
+          echo "  2. Verify Docker Hub access token has correct permissions"
+          echo "  3. Check Docker Hub storage quota"
+          echo "  4. Review workflow logs for specific error"
