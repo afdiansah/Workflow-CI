@@ -270,8 +270,7 @@ jobs:
     name: Build and Push Docker Image
     needs: evaluate
     runs-on: ubuntu-latest
-    # Only run if evaluate succeeded AND Docker secrets are available
-    if: success() && secrets.DOCKER_USERNAME != '' && secrets.DOCKER_PASSWORD != ''
+    if: success()
     
     steps:
       - name: Checkout code
@@ -282,12 +281,16 @@ jobs:
           if [ -z "${{ secrets.DOCKER_USERNAME }}" ]; then
             echo "❌ DOCKER_USERNAME secret is not set!"
             echo "Please add it in: Repository → Settings → Secrets and variables → Actions"
+            echo ""
+            echo "To skip Docker build, this is normal - training will still complete successfully."
             exit 1
           fi
           
           if [ -z "${{ secrets.DOCKER_PASSWORD }}" ]; then
             echo "❌ DOCKER_PASSWORD secret is not set!"
             echo "Please add it in: Repository → Settings → Secrets and variables → Actions"
+            echo ""
+            echo "To skip Docker build, this is normal - training will still complete successfully."
             exit 1
           fi
           
