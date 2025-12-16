@@ -190,7 +190,7 @@ def main():
     print("✅ MLflow autolog enabled for sklearn\n")
     
     # Load preprocessed data
-    preprocessed_path = os.path.join('..', 'Eksperimen_SML_Raifal-Bagus-Afdiansah', 'preprocessing', 'Heart_Disease_preprocessing', 'Heart_Disease_preprocessing.csv')
+    preprocessed_path = os.path.join('Heart_Disease_preprocessing.csv')
     X_train, X_test, y_train, y_test = load_preprocessed_data(preprocessed_path)
     
     # Define models to train
