@@ -119,9 +119,7 @@ jobs:
           path: |
             MLProject/mlruns/
             MLProject/model_comparison_results.csv
-            MLProject/model_comparison_results.json
           retention-days: 30
-          if-no-files-found: warn
       
       - name: Upload training logs
         if: always()
@@ -320,141 +318,32 @@ jobs:
           import pandas as pd
           import glob
           import os
-          import json
           
-          print('🔍 Searching for model results...')
-          
-          # Try to find CSV files first
           csv_files = glob.glob('artifacts/**/model_comparison_results.csv', recursive=True)
           
           if csv_files:
-              print(f'✅ Found {len(csv_files)} CSV result files')
-              for f in csv_files:
-                  print(f'  - {f}')
-              
-              # Read and combine results
               dfs = [pd.read_csv(f) for f in csv_files]
               combined = pd.concat(dfs, ignore_index=True)
-          else:
-              print('⚠️  No CSV files found, trying JSON...')
-              # Try JSON files as fallback
-              json_files = glob.glob('artifacts/**/model_comparison_results.json', recursive=True)
+              combined = combined.sort_values('test_accuracy', ascending=False)
               
-              if json_files:
-                  print(f'✅ Found {len(json_files)} JSON result files')
-                  for f in json_files:
-                      print(f'  - {f}')
-                  
-                  # Read and combine JSON results
-                  all_data = []
-                  for f in json_files:
-                      with open(f, 'r') as jf:
-                          data = json.load(jf)
-                          if isinstance(data, list):
-                              all_data.extend(data)
-                          else:
-                              all_data.append(data)
-                  combined = pd.DataFrame(all_data)
-              else:
-                  print('⚠️  No JSON files found either, trying to read from MLflow runs...')
-                  
-                  # Last resort: read metrics directly from mlruns
-                  import yaml
-                  
-                  all_results = []
-                  
-                  # Correct pattern for mlruns structure: artifacts/model-XXX/mlruns/0/run-id/
-                  run_dirs = []
-                  for model_dir in glob.glob('artifacts/model-*'):
-                      mlruns_exp_dir = os.path.join(model_dir, 'mlruns', '0')
-                      if os.path.exists(mlruns_exp_dir):
-                          for run_id in os.listdir(mlruns_exp_dir):
-                              run_path = os.path.join(mlruns_exp_dir, run_id)
-                              if os.path.isdir(run_path) and run_id != 'meta.yaml':
-                                  run_dirs.append(run_path)
-                  
-                  print(f'📂 Found {len(run_dirs)} MLflow run directories')
-                  
-                  if not run_dirs:
-                      print('\\n❌ No run directories found!')
-                      print('\\nSearching in all mlruns directories...')
-                      all_mlruns = glob.glob('artifacts/*/mlruns/**/', recursive=True)
-                      print(f'All mlruns paths found ({len(all_mlruns)}):')
-                      for p in all_mlruns[:20]:  # Show first 20
-                          print(f'  - {p}')
-                  
-                  for run_dir in run_dirs:
-                      meta_file = os.path.join(run_dir, 'meta.yaml')
-                      if os.path.exists(meta_file):
-                          try:
-                              with open(meta_file, 'r') as f:
-                                  meta = yaml.safe_load(f)
-                              
-                              # Get model name from run name
-                              model_name = meta.get('run_name', 'Unknown')
-                              print(f'  📊 Processing run: {model_name}')
-                              
-                              # Read metrics
-                              metrics_dir = os.path.join(run_dir, 'metrics')
-                              if os.path.exists(metrics_dir):
-                                  metrics = {}
-                                  for metric_file in os.listdir(metrics_dir):
-                                      metric_path = os.path.join(metrics_dir, metric_file)
-                                      if os.path.isfile(metric_path):
-                                          with open(metric_path, 'r') as f:
-                                              # MLflow metrics format: timestamp value step
-                                              lines = f.readlines()
-                                              if lines:
-                                                  last_line = lines[-1].strip()
-                                                  parts = last_line.split()
-                                                  if len(parts) >= 2:
-                                                      value = float(parts[1])
-                                                      metrics[metric_file] = value
-                                  
-                                  if metrics:
-                                      all_results.append({
-                                          'model': model_name,
-                                          'test_accuracy': metrics.get('test_accuracy', 0),
-                                          'test_precision': metrics.get('test_precision', 0),
-                                          'test_recall': metrics.get('test_recall', 0),
-                                          'test_f1_score': metrics.get('test_f1_score', 0)
-                                      })
-                                      print(f'    ✅ Metrics extracted: accuracy={metrics.get(\"test_accuracy\", 0):.4f}')
-                                  else:
-                                      print(f'    ⚠️  No metrics found in {metrics_dir}')
-                              else:
-                                  print(f'    ⚠️  No metrics directory in {run_dir}')
-                          except Exception as e:
-                              print(f'    ❌ Error processing {run_dir}: {e}')
-                  
-                  if all_results:
-                      combined = pd.DataFrame(all_results)
-                      print(f'\\n✅ Extracted metrics from {len(all_results)} MLflow runs')
-                  else:
-                      print('\\n❌ No results found from any source!')
-                      exit(1)
-          
-          # Sort by accuracy
-          combined = combined.sort_values('test_accuracy', ascending=False)
-          
-          print('\\n📊 Combined Results:')
-          print(combined.to_string(index=False))
-          
-          best_model = combined.iloc[0]['model']
-          best_accuracy = combined.iloc[0]['test_accuracy']
-          
-          # Sanitize model name for Docker tag
-          model_tag = best_model.lower().replace('_', '-')
-          
-          print(f'\\n🏆 Best model: {best_model}')
-          print(f'   Accuracy: {best_accuracy:.4f}')
-          print(f'   Docker tag: {model_tag}')
-          
-          # Write to GitHub output
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f'model_name={best_model}\\n')
-              f.write(f'model_tag={model_tag}\\n')
-              f.write(f'accuracy={best_accuracy}\\n')
+              best_model = combined.iloc[0]['model']
+              best_accuracy = combined.iloc[0]['test_accuracy']
+              
+              # Sanitize model name for Docker tag
+              model_tag = best_model.lower().replace('_', '-')
+              
+              print(f'Best model: {best_model}')
+              print(f'Accuracy: {best_accuracy}')
+              print(f'Docker tag: {model_tag}')
+              
+              # Write to GitHub output
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f'model_name={best_model}\n')
+                  f.write(f'model_tag={model_tag}\n')
+                  f.write(f'accuracy={best_accuracy}\n')
+          else:
+              print('No results found!')
+              exit(1)
           "
       
       - name: Prepare model for Docker
