@@ -319,31 +319,63 @@ jobs:
           import glob
           import os
           
+          # Search in all artifact folders
           csv_files = glob.glob('artifacts/**/model_comparison_results.csv', recursive=True)
           
-          if csv_files:
-              dfs = [pd.read_csv(f) for f in csv_files]
-              combined = pd.concat(dfs, ignore_index=True)
-              combined = combined.sort_values('test_accuracy', ascending=False)
+          if not csv_files:
+              print('⚠️  No CSV files found with glob pattern')
+              print('📂 Checking artifacts directory structure...')
+              import os
+              for root, dirs, files in os.walk('artifacts'):
+                  level = root.replace('artifacts', '').count(os.sep)
+                  indent = ' ' * 2 * level
+                  print(f'{indent}{os.path.basename(root)}/')
+                  subindent = ' ' * 2 * (level + 1)
+                  for file in files:
+                      print(f'{subindent}{file}')
               
-              best_model = combined.iloc[0]['model']
-              best_accuracy = combined.iloc[0]['test_accuracy']
+              print('\\n🔍 Searching for any CSV files...')
+              all_csv = glob.glob('artifacts/**/*.csv', recursive=True)
+              print(f'Found {len(all_csv)} CSV files:')
+              for f in all_csv:
+                  print(f'  - {f}')
               
-              # Sanitize model name for Docker tag
-              model_tag = best_model.lower().replace('_', '-')
+              # Try alternative paths
+              csv_files = glob.glob('artifacts/*/MLProject/model_comparison_results.csv')
+              if not csv_files:
+                  csv_files = glob.glob('artifacts/*/model_comparison_results.csv')
               
-              print(f'Best model: {best_model}')
-              print(f'Accuracy: {best_accuracy}')
-              print(f'Docker tag: {model_tag}')
-              
-              # Write to GitHub output
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write(f'model_name={best_model}\n')
-                  f.write(f'model_tag={model_tag}\n')
-                  f.write(f'accuracy={best_accuracy}\n')
-          else:
-              print('No results found!')
-              exit(1)
+              if not csv_files:
+                  print('\\n❌ Still no results found!')
+                  exit(1)
+          
+          print(f'\\n✅ Found {len(csv_files)} result files')
+          for f in csv_files:
+              print(f'  - {f}')
+          
+          # Read and combine results
+          dfs = [pd.read_csv(f) for f in csv_files]
+          combined = pd.concat(dfs, ignore_index=True)
+          combined = combined.sort_values('test_accuracy', ascending=False)
+          
+          print('\\n📊 Combined Results:')
+          print(combined.to_string(index=False))
+          
+          best_model = combined.iloc[0]['model']
+          best_accuracy = combined.iloc[0]['test_accuracy']
+          
+          # Sanitize model name for Docker tag
+          model_tag = best_model.lower().replace('_', '-')
+          
+          print(f'\\n🏆 Best model: {best_model}')
+          print(f'   Accuracy: {best_accuracy:.4f}')
+          print(f'   Docker tag: {model_tag}')
+          
+          # Write to GitHub output
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'model_name={best_model}\\n')
+              f.write(f'model_tag={model_tag}\\n')
+              f.write(f'accuracy={best_accuracy}\\n')
           "
       
       - name: Prepare model for Docker
