@@ -7,7 +7,7 @@ on:
       - develop
     paths:
       - 'MLProject/**'
-      - '.github/workflows/ml-pipeline.yml'
+      - '.github/workflows/main.yml'
   pull_request:
     branches:
       - main
