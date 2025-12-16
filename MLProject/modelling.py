@@ -246,17 +246,18 @@ def main():
             print(f"❌ Error training {model_config['name']}: {e}")
     
     # Summary of all models
-    print("\n" + "="*70)
-    print("📊 SUMMARY OF ALL MODELS")
-    print("="*70)
-    results_df = pd.DataFrame(all_results)
-    results_df = results_df.sort_values('accuracy', ascending=False)
-    print(results_df.to_string(index=False))
-    print("="*70)
-    
-    # Save results
-    results_df.to_csv('model_comparison_results.csv', index=False)
-    print(f"\n✅ Results saved to: model_comparison_results.csv")
+    if all_results:
+        print("\n" + "="*70)
+        print("📊 SUMMARY OF ALL MODELS")
+        print("="*70)
+        results_df = pd.DataFrame(all_results)
+        results_df = results_df.sort_values('test_accuracy', ascending=False)
+        print(results_df.to_string(index=False))
+        print("="*70)
+        
+        # Save results
+        results_df.to_csv('model_comparison_results.csv', index=False)
+        print(f"\n✅ Results saved to: model_comparison_results.csv")
     
     print("\n" + "="*70)
     print("🎉 TRAINING COMPLETED!")
