@@ -257,7 +257,7 @@ jobs:
           
           # Clear existing content (keep only new artifacts)
           git rm -rf . || true
-          
+           
           # Copy new artifacts
           cp -r artifacts_permanent/* . 2>/dev/null || echo "No artifacts to copy"
           
