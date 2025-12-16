@@ -273,9 +273,17 @@ def main():
         print(results_df.to_string(index=False))
         print("="*70)
         
-        # Save results
-        results_df.to_csv('model_comparison_results.csv', index=False)
-        print(f"\n✅ Results saved to: model_comparison_results.csv")
+        # Save results - ensure file is created in current directory
+        csv_path = 'model_comparison_results.csv'
+        results_df.to_csv(csv_path, index=False)
+        print(f"\n✅ Results saved to: {os.path.abspath(csv_path)}")
+        
+        # Also save as JSON for easier parsing
+        json_path = 'model_comparison_results.json'
+        results_df.to_json(json_path, orient='records', indent=2)
+        print(f"✅ Results also saved to: {os.path.abspath(json_path)}")
+    else:
+        print("\n⚠️  No models were trained successfully!")
     
     print("\n" + "="*70)
     print("🎉 TRAINING COMPLETED!")
