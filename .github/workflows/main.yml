@@ -348,17 +348,35 @@ jobs:
       
       - name: Prepare model for Docker
         run: |
-          # Find the mlruns directory with the best model
           MODEL_NAME="${{ steps.best-model.outputs.model_name }}"
-          echo "Preparing model: $MODEL_NAME"
+          echo "🔧 Preparing model: $MODEL_NAME"
           
-          # Copy model artifacts to a known location
+          # Create directory for Docker build
           mkdir -p model_for_docker
           
-          # Find and copy the model directory
-          find artifacts -type d -name "mlruns" -exec cp -r {} model_for_docker/ \;
+          echo "📦 Copying all mlruns directories..."
+          # Find and copy ALL mlruns directories with complete structure
+          for mlruns_dir in $(find artifacts -type d -name "mlruns"); do
+            echo "  Found: $mlruns_dir"
+            # Copy to model_for_docker, preserving structure
+            cp -r "$mlruns_dir"/* model_for_docker/ 2>/dev/null || true
+          done
           
+          echo ""
+          echo "📂 Model artifacts structure:"
           ls -la model_for_docker/
+          
+          echo ""
+          echo "📂 Checking experiments:"
+          if [ -d "model_for_docker" ]; then
+            find model_for_docker -type f -name "meta.yaml" | head -10
+          fi
+          
+          echo ""
+          echo "📂 Checking for runs:"
+          if [ -d "model_for_docker" ]; then
+            find model_for_docker -type d -name "artifacts" | head -5
+          fi
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -376,7 +394,7 @@ jobs:
           DOCKER_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           # Set MLflow tracking URI to local
-          export MLFLOW_TRACKING_URI=file://$(pwd)/model_for_docker/mlruns
+          export MLFLOW_TRACKING_URI=file://$(pwd)/model_for_docker
           
           echo "🔍 Searching for best model run..."
           echo "Tracking URI: $MLFLOW_TRACKING_URI"
@@ -388,20 +406,39 @@ jobs:
           
           mlflow.set_tracking_uri(os.environ['MLFLOW_TRACKING_URI'])
           
-          print('Experiments:')
+          print('\n📊 Experiments:')
           experiments = mlflow.search_experiments()
           for exp in experiments:
               print(f'  - {exp.name} (ID: {exp.experiment_id})')
           
-          print('\nAll runs:')
-          runs = mlflow.search_runs()
-          if not runs.empty:
-              print(runs[['run_id', 'experiment_id']].head())
-          else:
-              print('No runs found!')
+          print('\n📈 Searching for runs...')
+          try:
+              # Try to get all runs without filtering
+              runs = mlflow.search_runs(experiment_ids=None)
+              print(f'Total runs found: {len(runs)}')
+              
+              if not runs.empty:
+                  # Show available columns
+                  print(f'\nAvailable columns: {list(runs.columns)}')
+                  
+                  # Show top runs
+                  if 'metrics.test_accuracy' in runs.columns:
+                      print('\nTop 5 runs by accuracy:')
+                      top_runs = runs.nlargest(5, 'metrics.test_accuracy')
+                      print(top_runs[['run_id', 'metrics.test_accuracy']].to_string())
+                  else:
+                      print('\nAll runs:')
+                      print(runs[['run_id']].head().to_string())
+              else:
+                  print('❌ No runs found in any experiment!')
+                  
+          except Exception as e:
+              print(f'Error searching runs: {str(e)}')
           "
           
           # Find the best run ID
+          echo ""
+          echo "🎯 Finding best model run..."
           RUN_ID=$(python -c "
           import mlflow
           import os
@@ -409,15 +446,27 @@ jobs:
           mlflow.set_tracking_uri(os.environ['MLFLOW_TRACKING_URI'])
           
           # Get all runs
-          runs = mlflow.search_runs(order_by=['metrics.test_accuracy DESC'], max_results=1)
+          runs = mlflow.search_runs(experiment_ids=None)
           
           if not runs.empty:
-              run_id = runs.iloc[0]['run_id']
+              # Sort by test_accuracy if available
+              if 'metrics.test_accuracy' in runs.columns:
+                  runs_sorted = runs.sort_values('metrics.test_accuracy', ascending=False)
+                  run_id = runs_sorted.iloc[0]['run_id']
+              else:
+                  # Just take first run
+                  run_id = runs.iloc[0]['run_id']
+              
               print(run_id)
           else:
               print('No runs found!')
               exit(1)
           ")
+          
+          if [ -z "$RUN_ID" ]; then
+            echo "❌ Failed to find run ID"
+            exit 1
+          fi
           
           echo "✅ Best run ID: $RUN_ID"
           
@@ -425,6 +474,7 @@ jobs:
           IMAGE_NAME="${DOCKER_USERNAME}/heart-disease-model"
           IMAGE_TAG="${MODEL_TAG}-$(date +%Y%m%d)"
           
+          echo ""
           echo "🐳 Building Docker image: ${IMAGE_NAME}:${IMAGE_TAG}"
           echo "   Model URI: runs:/${RUN_ID}/model"
           
@@ -436,6 +486,7 @@ jobs:
           echo "✅ Docker image built successfully"
           
           # Tag with version and latest
+          echo ""
           echo "🏷️  Tagging images..."
           docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}"
           docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${MODEL_TAG}"
