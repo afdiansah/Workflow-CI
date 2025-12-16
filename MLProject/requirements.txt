@@ -1,0 +1,15 @@
+# Python 3.12.7 Compatible Dependencies
+# MLflow Tracking
+mlflow==2.19.0
+
+# Machine Learning
+scikit-learn==1.5.2
+numpy==1.26.4
+pandas==2.2.3
+
+# Visualization
+matplotlib==3.9.2
+seaborn==0.13.2
+
+# Utilities
+tqdm==4.66.5
