@@ -266,9 +266,180 @@ jobs:
           git commit -m "🤖 Auto-commit: Training artifacts from run ${{ github.run_id }}" || echo "No changes to commit"
           git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git artifacts --force || echo "Push failed"
 
+  docker:
+    name: Build and Push Docker Image
+    needs: evaluate
+    runs-on: ubuntu-latest
+    if: success()
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python 3.12.7
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.7'
+      
+      - name: Install MLflow
+        run: |
+          python -m pip install --upgrade pip
+          pip install mlflow==2.19.0 boto3
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+      
+      - name: Find best model
+        id: best-model
+        run: |
+          python -c "
+          import pandas as pd
+          import glob
+          import os
+          
+          csv_files = glob.glob('artifacts/**/model_comparison_results.csv', recursive=True)
+          
+          if csv_files:
+              dfs = [pd.read_csv(f) for f in csv_files]
+              combined = pd.concat(dfs, ignore_index=True)
+              combined = combined.sort_values('test_accuracy', ascending=False)
+              
+              best_model = combined.iloc[0]['model']
+              best_accuracy = combined.iloc[0]['test_accuracy']
+              
+              # Sanitize model name for Docker tag
+              model_tag = best_model.lower().replace('_', '-')
+              
+              print(f'Best model: {best_model}')
+              print(f'Accuracy: {best_accuracy}')
+              print(f'Docker tag: {model_tag}')
+              
+              # Write to GitHub output
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f'model_name={best_model}\n')
+                  f.write(f'model_tag={model_tag}\n')
+                  f.write(f'accuracy={best_accuracy}\n')
+          else:
+              print('No results found!')
+              exit(1)
+          "
+      
+      - name: Prepare model for Docker
+        run: |
+          # Find the mlruns directory with the best model
+          MODEL_NAME="${{ steps.best-model.outputs.model_name }}"
+          echo "Preparing model: $MODEL_NAME"
+          
+          # Copy model artifacts to a known location
+          mkdir -p model_for_docker
+          
+          # Find and copy the model directory
+          find artifacts -type d -name "mlruns" -exec cp -r {} model_for_docker/ \;
+          
+          ls -la model_for_docker/
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      
+      - name: Build Docker image with MLflow
+        env:
+          MODEL_NAME: ${{ steps.best-model.outputs.model_name }}
+          MODEL_TAG: ${{ steps.best-model.outputs.model_tag }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        run: |
+          # Set MLflow tracking URI to local
+          export MLFLOW_TRACKING_URI=file://$(pwd)/model_for_docker/mlruns
+          
+          # Find the best run ID
+          RUN_ID=$(python -c "
+          import mlflow
+          import os
+          
+          mlflow.set_tracking_uri(os.environ['MLFLOW_TRACKING_URI'])
+          
+          # Get all runs
+          runs = mlflow.search_runs(order_by=['metrics.test_accuracy DESC'], max_results=1)
+          
+          if not runs.empty:
+              run_id = runs.iloc[0]['run_id']
+              print(run_id)
+          else:
+              print('No runs found!')
+              exit(1)
+          ")
+          
+          echo "Best run ID: $RUN_ID"
+          
+          # Build Docker image using MLflow
+          IMAGE_NAME="${DOCKER_USERNAME}/heart-disease-model"
+          IMAGE_TAG="${MODEL_TAG}-$(date +%Y%m%d)"
+          
+          echo "Building Docker image: ${IMAGE_NAME}:${IMAGE_TAG}"
+          
+          mlflow models build-docker \
+            --model-uri "runs:/${RUN_ID}/model" \
+            --name "${IMAGE_NAME}" \
+            --enable-mlserver
+          
+          # Tag with version and latest
+          docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}"
+          docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${MODEL_TAG}"
+          
+          echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+      
+      - name: Push Docker image to Docker Hub
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+          MODEL_TAG: ${{ steps.best-model.outputs.model_tag }}
+        run: |
+          echo "Pushing Docker images to Docker Hub..."
+          
+          # Push all tags
+          docker push ${IMAGE_NAME}:latest
+          docker push ${IMAGE_NAME}:${IMAGE_TAG}
+          docker push ${IMAGE_NAME}:${MODEL_TAG}
+          
+          echo "✅ Docker images pushed successfully!"
+          echo "   - ${IMAGE_NAME}:latest"
+          echo "   - ${IMAGE_NAME}:${IMAGE_TAG}"
+          echo "   - ${IMAGE_NAME}:${MODEL_TAG}"
+      
+      - name: Create Docker summary
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+          MODEL_NAME: ${{ steps.best-model.outputs.model_name }}
+          ACCURACY: ${{ steps.best-model.outputs.accuracy }}
+        run: |
+          echo "## 🐳 Docker Image Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Model:** ${MODEL_NAME}" >> $GITHUB_STEP_SUMMARY
+          echo "**Accuracy:** ${ACCURACY}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Docker Images:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${IMAGE_NAME}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${IMAGE_NAME}:${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Run Container:" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker run -p 8080:8080 ${IMAGE_NAME}:latest" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
   notify:
     name: Notification
-    needs: [train, evaluate]
+    needs: [train, evaluate, docker]
     runs-on: ubuntu-latest
     if: always()
     
@@ -279,9 +450,20 @@ jobs:
           echo "✅ All models trained successfully!"
           echo "📊 Evaluation completed!"
       
+      - name: Docker Success Notification
+        if: needs.docker.result == 'success'
+        run: |
+          echo "🐳 Docker image pushed to Docker Hub!"
+      
       - name: Training Failure Notification
         if: needs.train.result == 'failure' || needs.evaluate.result == 'failure'
         run: |
           echo "❌ Training or evaluation failed!"
           echo "Please check the logs for details."
           exit 1
+      
+      - name: Docker Failure Notification
+        if: needs.docker.result == 'failure'
+        run: |
+          echo "⚠️ Docker build/push failed!"
+          echo "Training was successful but Docker image not created."
