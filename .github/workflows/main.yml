@@ -278,8 +278,8 @@ jobs:
       
       - name: Verify Docker Hub credentials
         run: |
-          if [ -z "${{ secrets.DOCKER_USERNAME }}" ]; then
-            echo "❌ DOCKER_USERNAME secret is not set!"
+          if [ -z "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
+            echo "❌ DOCKERHUB_USERNAME secret is not set!"
             echo "Please add it in: Repository → Settings → Secrets and variables → Actions"
             echo ""
             echo "To skip Docker build, this is normal - training will still complete successfully."
@@ -366,14 +366,14 @@ jobs:
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
       
       - name: Build Docker image with MLflow
         env:
           MODEL_NAME: ${{ steps.best-model.outputs.model_name }}
           MODEL_TAG: ${{ steps.best-model.outputs.model_tag }}
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           # Set MLflow tracking URI to local
           export MLFLOW_TRACKING_URI=file://$(pwd)/model_for_docker/mlruns
