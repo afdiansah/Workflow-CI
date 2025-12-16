@@ -351,32 +351,32 @@ jobs:
           MODEL_NAME="${{ steps.best-model.outputs.model_name }}"
           echo "🔧 Preparing model: $MODEL_NAME"
           
-          # Create directory for Docker build
-          mkdir -p model_for_docker
+          # Create directory for model
+          mkdir -p model_to_deploy
           
-          echo "📦 Copying all mlruns directories..."
-          # Find and copy ALL mlruns directories with complete structure
-          for mlruns_dir in $(find artifacts -type d -name "mlruns"); do
-            echo "  Found: $mlruns_dir"
-            # Copy to model_for_docker, preserving structure
-            cp -r "$mlruns_dir"/* model_for_docker/ 2>/dev/null || true
-          done
+          echo "📦 Extracting model artifacts..."
+          # Find model artifacts from the specific model
+          MODEL_ARTIFACT_DIR=$(find artifacts/model-${MODEL_NAME} -type d -path "*/artifacts/model" | head -1)
           
-          echo ""
-          echo "📂 Model artifacts structure:"
-          ls -la model_for_docker/
-          
-          echo ""
-          echo "📂 Checking experiments:"
-          if [ -d "model_for_docker" ]; then
-            find model_for_docker -type f -name "meta.yaml" | head -10
+          if [ -z "$MODEL_ARTIFACT_DIR" ]; then
+            echo "❌ Model artifacts not found for $MODEL_NAME"
+            echo "Searching in all artifacts..."
+            find artifacts -name "MLmodel" -type f
+            exit 1
           fi
           
+          echo "✅ Found model at: $MODEL_ARTIFACT_DIR"
+          
+          # Copy model artifacts
+          cp -r "$MODEL_ARTIFACT_DIR" model_to_deploy/
+          
           echo ""
-          echo "📂 Checking for runs:"
-          if [ -d "model_for_docker" ]; then
-            find model_for_docker -type d -name "artifacts" | head -5
-          fi
+          echo "📂 Model structure:"
+          ls -la model_to_deploy/model/
+          
+          echo ""
+          echo "📄 MLmodel file:"
+          cat model_to_deploy/model/MLmodel
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -393,94 +393,23 @@ jobs:
           MODEL_TAG: ${{ steps.best-model.outputs.model_tag }}
           DOCKER_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          # Set MLflow tracking URI to local
-          export MLFLOW_TRACKING_URI=file://$(pwd)/model_for_docker
+          echo "🐳 Building Docker image for: $MODEL_NAME"
           
-          echo "🔍 Searching for best model run..."
-          echo "Tracking URI: $MLFLOW_TRACKING_URI"
-          
-          # List all experiments and runs for debugging
-          python -c "
-          import mlflow
-          import os
-          
-          mlflow.set_tracking_uri(os.environ['MLFLOW_TRACKING_URI'])
-          
-          print('\n📊 Experiments:')
-          experiments = mlflow.search_experiments()
-          for exp in experiments:
-              print(f'  - {exp.name} (ID: {exp.experiment_id})')
-          
-          print('\n📈 Searching for runs...')
-          try:
-              # Try to get all runs without filtering
-              runs = mlflow.search_runs(experiment_ids=None)
-              print(f'Total runs found: {len(runs)}')
-              
-              if not runs.empty:
-                  # Show available columns
-                  print(f'\nAvailable columns: {list(runs.columns)}')
-                  
-                  # Show top runs
-                  if 'metrics.test_accuracy' in runs.columns:
-                      print('\nTop 5 runs by accuracy:')
-                      top_runs = runs.nlargest(5, 'metrics.test_accuracy')
-                      print(top_runs[['run_id', 'metrics.test_accuracy']].to_string())
-                  else:
-                      print('\nAll runs:')
-                      print(runs[['run_id']].head().to_string())
-              else:
-                  print('❌ No runs found in any experiment!')
-                  
-          except Exception as e:
-              print(f'Error searching runs: {str(e)}')
-          "
-          
-          # Find the best run ID
-          echo ""
-          echo "🎯 Finding best model run..."
-          RUN_ID=$(python -c "
-          import mlflow
-          import os
-          
-          mlflow.set_tracking_uri(os.environ['MLFLOW_TRACKING_URI'])
-          
-          # Get all runs
-          runs = mlflow.search_runs(experiment_ids=None)
-          
-          if not runs.empty:
-              # Sort by test_accuracy if available
-              if 'metrics.test_accuracy' in runs.columns:
-                  runs_sorted = runs.sort_values('metrics.test_accuracy', ascending=False)
-                  run_id = runs_sorted.iloc[0]['run_id']
-              else:
-                  # Just take first run
-                  run_id = runs.iloc[0]['run_id']
-              
-              print(run_id)
-          else:
-              print('No runs found!')
-              exit(1)
-          ")
-          
-          if [ -z "$RUN_ID" ]; then
-            echo "❌ Failed to find run ID"
-            exit 1
-          fi
-          
-          echo "✅ Best run ID: $RUN_ID"
-          
-          # Build Docker image using MLflow
+          # Build Docker image using MLflow with local model path
           IMAGE_NAME="${DOCKER_USERNAME}/heart-disease-model"
           IMAGE_TAG="${MODEL_TAG}-$(date +%Y%m%d)"
           
           echo ""
-          echo "🐳 Building Docker image: ${IMAGE_NAME}:${IMAGE_TAG}"
-          echo "   Model URI: runs:/${RUN_ID}/model"
+          echo "📦 Image details:"
+          echo "   Name: ${IMAGE_NAME}"
+          echo "   Tag: ${IMAGE_TAG}"
+          echo "   Model path: $(pwd)/model_to_deploy/model"
           
-          # Build without --enable-mlserver for simplicity
+          # Build using local model path (not runs URI)
+          echo ""
+          echo "🔨 Building Docker image..."
           mlflow models build-docker \
-            --model-uri "runs:/${RUN_ID}/model" \
+            --model-uri "$(pwd)/model_to_deploy/model" \
             --name "${IMAGE_NAME}"
           
           echo "✅ Docker image built successfully"
@@ -496,6 +425,7 @@ jobs:
           echo "   - ${IMAGE_NAME}:${IMAGE_TAG}"
           echo "   - ${IMAGE_NAME}:${MODEL_TAG}"
           
+          # Save to env for next step
           echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
           echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
       
