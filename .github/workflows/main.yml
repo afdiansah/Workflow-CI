@@ -21,6 +21,10 @@ on:
         required: false
         default: 'all'
 
+permissions:
+  contents: write
+  actions: read
+
 jobs:
   setup:
     name: Setup Environment
@@ -244,8 +248,8 @@ jobs:
       
       - name: Commit artifacts to artifacts branch
         run: |
-          git config --global user.name "GitHub Actions Bot"
-          git config --global user.email "actions@github.com"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
           # Checkout or create artifacts branch
           git fetch origin artifacts || true
@@ -255,12 +259,12 @@ jobs:
           git rm -rf . || true
           
           # Copy new artifacts
-          cp -r artifacts_permanent/* .
+          cp -r artifacts_permanent/* . 2>/dev/null || echo "No artifacts to copy"
           
-          # Commit and push
-          git add .
+          # Commit and push with token
+          git add . || true
           git commit -m "🤖 Auto-commit: Training artifacts from run ${{ github.run_id }}" || echo "No changes to commit"
-          git push origin artifacts --force
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git artifacts --force || echo "Push failed"
 
   notify:
     name: Notification
