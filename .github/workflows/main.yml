@@ -411,238 +411,42 @@ jobs:
           
           echo "✅ Docker Hub credentials are configured"
       
-      - name: Set up Python 3.12.7
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12.7'
-      
-      - name: Install MLflow
-        run: |
-          python -m pip install --upgrade pip
-          pip install mlflow==2.19.0 boto3
-      
-      - name: Download model artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts/
       
-      - name: Find best model from MLflow runs
-        id: best-model
+      - name: Push experiments to branch
         run: |
-          python -c "
-          import mlflow
-          import pandas as pd
-          import glob
-          import os
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          print('='*70)
-          print('🔍 FINDING BEST MODEL FROM MLFLOW RUNS')
-          print('='*70)
+          # Checkout or create experiments branch
+          git fetch origin experiments || true
+          git checkout -B experiments || git checkout --orphan experiments
           
-          # Find all model artifact directories
-          model_dirs = glob.glob('artifacts/model-*')
+          # Clear existing content
+          git rm -rf . || true
           
-          print(f'\\n📂 Found {len(model_dirs)} model directories')
+          # Copy all artifacts
+          cp -r artifacts/* . 2>/dev/null || echo "No artifacts to copy"
           
-          all_results = []
+          # Create README
+          echo "# ML Experiments - $(date '+%Y-%m-%d %H:%M:%S')" > README.md
+          echo "" >> README.md
+          echo "**Commit:** ${{ github.sha }}" >> README.md
+          echo "**Branch:** ${{ github.ref_name }}" >> README.md
+          echo "**Workflow Run:** ${{ github.run_id }}" >> README.md
+          echo "" >> README.md
+          echo "## Artifacts" >> README.md
+          ls -la >> README.md
           
-          for model_dir in model_dirs:
-              # Set tracking URI
-              tracking_uri = f'file:///{os.path.abspath(model_dir)}'
-              mlflow.set_tracking_uri(tracking_uri)
-              
-              client = mlflow.tracking.MlflowClient()
-              
-              try:
-                  experiments = client.search_experiments()
-              except Exception as e:
-                  continue
-              
-              for exp in experiments:
-                  if exp.lifecycle_stage == 'deleted':
-                      continue
-                  
-                  try:
-                      runs = client.search_runs(
-                          experiment_ids=[exp.experiment_id],
-                          order_by=['start_time DESC']
-                      )
-                  except Exception as e:
-                      continue
-                  
-                  for run in runs:
-                      run_name = run.data.tags.get('mlflow.runName', 'Unknown')
-                      metrics = run.data.metrics
-                      
-                      result = {
-                          'model': run_name,
-                          'accuracy': metrics.get('test_accuracy', 0),
-                          'model_dir': model_dir,
-                          'run_id': run.info.run_id
-                      }
-                      all_results.append(result)
+          # Commit and push
+          git add .
+          git commit -m "🚀 Experiments from run ${{ github.run_id }}" || echo "No changes"
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git experiments --force
           
-          if all_results:
-              # Sort by accuracy and get best model
-              df = pd.DataFrame(all_results)
-              df = df.sort_values('accuracy', ascending=False)
-              df = df.drop_duplicates(subset=['model'], keep='first')
-              
-              best = df.iloc[0]
-              best_model = best['model']
-              best_accuracy = best['accuracy']
-              best_model_dir = best['model_dir']
-              
-              # Extract model type from directory name (artifacts/model-XXXX)
-              model_type = best_model_dir.split('model-')[-1]
-              model_tag = model_type.lower().replace('_', '-')
-              
-              print('\\n' + '='*70)
-              print('BEST MODEL FOR DOCKER DEPLOYMENT')
-              print('='*70)
-              print(f'Run Name: {best_model}')
-              print(f'Model Type: {model_type}')
-              print(f'Accuracy: {best_accuracy:.4f}')
-              print(f'Docker tag: {model_tag}')
-              print(f'Model directory: {best_model_dir}')
-              print('='*70)
-              
-              # Write to GitHub output
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write(f"model_name={model_type}\n")
-                  f.write(f"model_tag={model_tag}\n")
-                  f.write(f"accuracy={best_accuracy}\n")
-                  f.write(f"model_dir={best_model_dir}\n")
-          else:
-              print('\\n❌ No models found!')
-              exit(1)
-          "
-      
-      - name: Prepare model for Docker
-        run: |
-          MODEL_NAME="${{ steps.best-model.outputs.model_name }}"
-          MODEL_DIR="${{ steps.best-model.outputs.model_dir }}"
-          echo "🔧 Preparing model: $MODEL_NAME"
-          echo "📂 Model directory: $MODEL_DIR"
-          
-          # Create directory for model
-          mkdir -p model_to_deploy
-          
-          echo "📦 Extracting model artifacts..."
-          # Find model artifacts from the specific model directory
-          MODEL_ARTIFACT_DIR=$(find ${MODEL_DIR} -type d -path "*/artifacts/model" | head -1)
-          
-          if [ -z "$MODEL_ARTIFACT_DIR" ]; then
-            echo "❌ Model artifacts not found for $MODEL_NAME"
-            echo "Searching in all artifacts..."
-            find artifacts -name "MLmodel" -type f
-            exit 1
-          fi
-          
-          echo "✅ Found model at: $MODEL_ARTIFACT_DIR"
-          
-          # Copy model artifacts
-          cp -r "$MODEL_ARTIFACT_DIR" model_to_deploy/
-          
-          echo ""
-          echo "📂 Model structure:"
-          ls -la model_to_deploy/model/
-          
-          echo ""
-          echo "📄 MLmodel file:"
-          cat model_to_deploy/model/MLmodel
-      
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-      
-      - name: Build Docker image with MLflow
-        env:
-          MODEL_NAME: ${{ steps.best-model.outputs.model_name }}
-          MODEL_TAG: ${{ steps.best-model.outputs.model_tag }}
-          DOCKER_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-        run: |
-          echo "🐳 Building Docker image for: $MODEL_NAME"
-          
-          # Build Docker image using MLflow with local model path
-          IMAGE_NAME="${DOCKER_USERNAME}/heart-disease-model"
-          IMAGE_TAG="${MODEL_TAG}-$(date +%Y%m%d)"
-          
-          echo ""
-          echo "📦 Image details:"
-          echo "   Name: ${IMAGE_NAME}"
-          echo "   Tag: ${IMAGE_TAG}"
-          echo "   Model path: $(pwd)/model_to_deploy/model"
-          
-          # Build using local model path (not runs URI)
-          echo ""
-          echo "🔨 Building Docker image..."
-          mlflow models build-docker \
-            --model-uri "$(pwd)/model_to_deploy/model" \
-            --name "${IMAGE_NAME}"
-          
-          echo "✅ Docker image built successfully"
-          
-          # Tag with version and latest
-          echo ""
-          echo "🏷️  Tagging images..."
-          docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}"
-          docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${MODEL_TAG}"
-          
-          echo "✅ Tags created:"
-          echo "   - ${IMAGE_NAME}:latest"
-          echo "   - ${IMAGE_NAME}:${IMAGE_TAG}"
-          echo "   - ${IMAGE_NAME}:${MODEL_TAG}"
-          
-          # Save to env for next step
-          echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
-          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
-      
-      - name: Push Docker image to Docker Hub
-        env:
-          IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          IMAGE_TAG: ${{ env.IMAGE_TAG }}
-          MODEL_TAG: ${{ steps.best-model.outputs.model_tag }}
-        run: |
-          echo "Pushing Docker images to Docker Hub..."
-          
-          # Push all tags
-          docker push ${IMAGE_NAME}:latest
-          docker push ${IMAGE_NAME}:${IMAGE_TAG}
-          docker push ${IMAGE_NAME}:${MODEL_TAG}
-          
-          echo "✅ Docker images pushed successfully!"
-          echo "   - ${IMAGE_NAME}:latest"
-          echo "   - ${IMAGE_NAME}:${IMAGE_TAG}"
-          echo "   - ${IMAGE_NAME}:${MODEL_TAG}"
-      
-      - name: Create Docker summary
-        env:
-          IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          IMAGE_TAG: ${{ env.IMAGE_TAG }}
-          MODEL_NAME: ${{ steps.best-model.outputs.model_name }}
-          ACCURACY: ${{ steps.best-model.outputs.accuracy }}
-        run: |
-          echo "## 🐳 Docker Image Published" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Model:** ${MODEL_NAME}" >> $GITHUB_STEP_SUMMARY
-          echo "**Accuracy:** ${ACCURACY}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Docker Images:" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${IMAGE_NAME}:latest" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${IMAGE_NAME}:${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Run Container:" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "docker run -p 8080:8080 ${IMAGE_NAME}:latest" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "✅ Experiments pushed to experiments branch"
 
   notify:
     name: Notification
