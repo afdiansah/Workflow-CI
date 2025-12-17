@@ -203,9 +203,26 @@ jobs:
           print('📊 EXTRACTING METRICS FROM MLFLOW RUNS')
           print('='*70)
           
-          # Find all mlruns directories from artifacts
-          mlruns_dirs = glob.glob('artifacts/**/mlruns', recursive=True)
-          print(f'Found {len(mlruns_dirs)} mlruns directories')
+          # Debug: List artifact structure
+          print('\\n📁 Artifact structure:')
+          for root, dirs, files in os.walk('artifacts'):
+              level = root.replace('artifacts', '').count(os.sep)
+              indent = ' ' * 2 * level
+              print(f'{indent}{os.path.basename(root)}/')
+              if level < 2:  # Only show first 2 levels
+                  subindent = ' ' * 2 * (level + 1)
+                  for dir_name in dirs[:5]:  # Show first 5 dirs
+                      print(f'{subindent}{dir_name}/')
+          
+          # Find all mlruns directories from artifacts (fixed pattern)
+          mlruns_dirs = []
+          for root, dirs, files in os.walk('artifacts'):
+              if 'mlruns' in dirs:
+                  mlruns_dirs.append(os.path.join(root, 'mlruns'))
+          
+          print(f'\\n📂 Found {len(mlruns_dirs)} mlruns directories:')
+          for d in mlruns_dirs:
+              print(f'   - {d}')
           
           all_results = []
           
@@ -220,23 +237,34 @@ jobs:
               client = mlflow.tracking.MlflowClient()
               
               # List all experiments
-              experiments = client.search_experiments()
+              try:
+                  experiments = client.search_experiments()
+              except Exception as e:
+                  print(f'   ⚠️ Error listing experiments: {e}')
+                  continue
               
               for exp in experiments:
-                  print(f'   Experiment: {exp.name} (ID: {exp.experiment_id})')
+                  if exp.lifecycle_stage == 'deleted':
+                      continue
+                      
+                  print(f'   ✅ Experiment: {exp.name} (ID: {exp.experiment_id})')
                   
                   # Search all runs in this experiment
-                  runs = client.search_runs(
-                      experiment_ids=[exp.experiment_id],
-                      order_by=['start_time DESC']
-                  )
+                  try:
+                      runs = client.search_runs(
+                          experiment_ids=[exp.experiment_id],
+                          order_by=['start_time DESC']
+                      )
+                  except Exception as e:
+                      print(f'      ⚠️ Error searching runs: {e}')
+                      continue
                   
                   for run in runs:
                       run_name = run.data.tags.get('mlflow.runName', 'Unknown')
                       metrics = run.data.metrics
                       
-                      print(f'      Run: {run_name}')
-                      print(f'         Metrics: {list(metrics.keys())}')
+                      print(f'      📊 Run: {run_name}')
+                      print(f'         Metrics: {list(metrics.keys())[:10]}')
                       
                       # Extract metrics
                       result = {
@@ -248,11 +276,15 @@ jobs:
                           'run_id': run.info.run_id
                       }
                       all_results.append(result)
+                      print(f'         Accuracy: {result[\"test_accuracy\"]:.4f}')
           
           # Create DataFrame
           if all_results:
               df = pd.DataFrame(all_results)
+              
+              # Remove duplicates (keep best accuracy for each model)
               df = df.sort_values('test_accuracy', ascending=False)
+              df = df.drop_duplicates(subset=['model'], keep='first')
               
               print('\\n' + '='*70)
               print('📊 MODEL COMPARISON FROM MLFLOW RUNS')
@@ -274,6 +306,10 @@ jobs:
               print(f\"   Run ID: {best['run_id']}\")
           else:
               print('\\n❌ No MLflow runs found!')
+              print('\\n🔍 Troubleshooting:')
+              print('   1. Check if mlruns directories exist in artifacts')
+              print('   2. Verify MLflow tracking was successful during training')
+              print('   3. Check training logs for errors')
               exit(1)
           "
       
