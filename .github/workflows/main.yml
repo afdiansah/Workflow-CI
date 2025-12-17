@@ -497,11 +497,14 @@ jobs:
               model_type = best_model_dir.split('model-')[-1]
               model_tag = model_type.lower().replace('_', '-')
               
-              print(f"\n🏆 BEST MODEL: {best_model}")
-              print(f"   Model Type: {model_type}")
-              print(f"   Accuracy: {best_accuracy:.4f}")
-              print(f"   Docker tag: {model_tag}")
-              print(f"   Model directory: {best_model_dir}")
+              print('\\n' + '='*70)
+              print('BEST MODEL FOR DOCKER DEPLOYMENT')
+              print('='*70)
+              print(f'Run Name: {best_model}')
+              print(f'Model Type: {model_type}')
+              print(f'Accuracy: {best_accuracy:.4f}')
+              print(f'Docker tag: {model_tag}')
+              print(f'Model directory: {best_model_dir}')
               print('='*70)
               
               # Write to GitHub output
