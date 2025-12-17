@@ -112,6 +112,17 @@ jobs:
           MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
           MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
       
+      - name: List generated files
+        run: |
+          echo "📂 Files in MLProject directory:"
+          ls -la MLProject/
+          echo ""
+          echo "📂 MLruns structure (first 30 items):"
+          find MLProject/mlruns -type f | head -30
+          echo ""
+          echo "📂 Looking for model artifacts:"
+          find MLProject/mlruns -name "MLmodel" -type f
+      
       - name: Upload model artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -119,7 +130,9 @@ jobs:
           path: |
             MLProject/mlruns/
             MLProject/model_comparison_results.csv
+            MLProject/model_comparison_results.json
           retention-days: 30
+          if-no-files-found: warn
       
       - name: Upload training logs
         if: always()
@@ -354,18 +367,61 @@ jobs:
           # Create directory for model
           mkdir -p model_to_deploy
           
-          echo "📦 Extracting model artifacts..."
-          # Find model artifacts from the specific model
-          MODEL_ARTIFACT_DIR=$(find artifacts/model-${MODEL_NAME} -type d -path "*/artifacts/model" | head -1)
+          echo "� Searching for model artifacts..."
+          echo "Looking in: artifacts/model-${MODEL_NAME}"
           
+          # Debug: Show full structure
+          echo ""
+          echo "📁 Full artifacts structure for this model:"
+          find "artifacts/model-${MODEL_NAME}" -type f -name "*.pkl" -o -name "MLmodel" -o -name "model.pkl" 2>/dev/null | head -20
+          
+          echo ""
+          echo "📁 All directories containing 'model':"
+          find "artifacts/model-${MODEL_NAME}" -type d -name "*model*" 2>/dev/null
+          
+          # Try multiple possible paths for MLflow model artifacts
+          MODEL_ARTIFACT_DIR=""
+          
+          # Path 1: Standard MLflow structure - mlruns/experiment_id/run_id/artifacts/model
           if [ -z "$MODEL_ARTIFACT_DIR" ]; then
+            MODEL_ARTIFACT_DIR=$(find "artifacts/model-${MODEL_NAME}/mlruns" -type d -name "model" -path "*/artifacts/model" 2>/dev/null | head -1)
+            if [ -n "$MODEL_ARTIFACT_DIR" ]; then
+              echo "✅ Found model at standard path: $MODEL_ARTIFACT_DIR"
+            fi
+          fi
+          
+          # Path 2: Direct artifacts/model path
+          if [ -z "$MODEL_ARTIFACT_DIR" ]; then
+            MODEL_ARTIFACT_DIR=$(find "artifacts/model-${MODEL_NAME}" -type d -path "*/artifacts/model" 2>/dev/null | head -1)
+            if [ -n "$MODEL_ARTIFACT_DIR" ]; then
+              echo "✅ Found model at direct path: $MODEL_ARTIFACT_DIR"
+            fi
+          fi
+          
+          # Path 3: Any directory named "model" with MLmodel file
+          if [ -z "$MODEL_ARTIFACT_DIR" ]; then
+            MLMODEL_FILE=$(find "artifacts/model-${MODEL_NAME}" -name "MLmodel" -type f 2>/dev/null | head -1)
+            if [ -n "$MLMODEL_FILE" ]; then
+              MODEL_ARTIFACT_DIR=$(dirname "$MLMODEL_FILE")
+              echo "✅ Found model via MLmodel file: $MODEL_ARTIFACT_DIR"
+            fi
+          fi
+          
+          # If still not found, show detailed debug info
+          if [ -z "$MODEL_ARTIFACT_DIR" ]; then
+            echo ""
             echo "❌ Model artifacts not found for $MODEL_NAME"
-            echo "Searching in all artifacts..."
-            find artifacts -name "MLmodel" -type f
+            echo ""
+            echo "📂 Complete directory structure:"
+            find "artifacts/model-${MODEL_NAME}" -type d | head -50
+            echo ""
+            echo "📄 All files in artifacts:"
+            find "artifacts/model-${MODEL_NAME}" -type f | head -50
             exit 1
           fi
           
-          echo "✅ Found model at: $MODEL_ARTIFACT_DIR"
+          echo ""
+          echo "📦 Copying model from: $MODEL_ARTIFACT_DIR"
           
           # Copy model artifacts
           cp -r "$MODEL_ARTIFACT_DIR" model_to_deploy/

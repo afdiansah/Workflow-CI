@@ -134,7 +134,7 @@ def train_model_with_mlflow(X_train, X_test, y_train, y_test, model, model_name,
     params : dict
         Parameter model (optional)
     """
-    with mlflow.start_run(run_name=model_name):
+    with mlflow.start_run(run_name=model_name) as run:
         print(f"\n{'='*70}")
         print(f"🚀 TRAINING MODEL: {model_name}")
         print(f"{'='*70}")
@@ -153,8 +153,14 @@ def train_model_with_mlflow(X_train, X_test, y_train, y_test, model, model_name,
         # Log metrics to MLflow
         mlflow.log_metrics(metrics)
         
-        # Log model
+        # Log model explicitly (autolog may not always work)
         mlflow.sklearn.log_model(model, "model")
+        
+        # Get run info for debugging
+        run_id = run.info.run_id
+        artifact_uri = run.info.artifact_uri
+        print(f"\n📁 Run ID: {run_id}")
+        print(f"📁 Artifact URI: {artifact_uri}")
         
         print(f"\n✅ MLflow tracking completed for {model_name}")
         
