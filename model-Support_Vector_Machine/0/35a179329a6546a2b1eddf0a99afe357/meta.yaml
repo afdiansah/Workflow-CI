@@ -1,0 +1,15 @@
+artifact_uri: file:///home/runner/work/Workflow-CI/Workflow-CI/MLProject/mlruns/0/35a179329a6546a2b1eddf0a99afe357/artifacts
+end_time: 1765957940560
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 35a179329a6546a2b1eddf0a99afe357
+run_name: kindly-snake-220
+run_uuid: 35a179329a6546a2b1eddf0a99afe357
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1765957937627
+status: 3
+tags: []
+user_id: runner

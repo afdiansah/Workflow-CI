@@ -1,0 +1,15 @@
+artifact_uri: file:///home/runner/work/Workflow-CI/Workflow-CI/MLProject/mlruns/0/c74b270c19bd4b2ca3d8909adadc727d/artifacts
+end_time: 1765957896013
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: c74b270c19bd4b2ca3d8909adadc727d
+run_name: fearless-chimp-880
+run_uuid: c74b270c19bd4b2ca3d8909adadc727d
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1765957892931
+status: 3
+tags: []
+user_id: runner
