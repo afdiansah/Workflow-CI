@@ -133,14 +133,16 @@ jobs:
       - name: Verify artifacts after training
         run: |
           echo "📦 Checking generated artifacts..."
+          echo ""
+          echo "📁 MLProject directory:"
           ls -la MLProject/ || true
+          echo ""
+          echo "📁 MLProject/mlruns directory:"
           ls -la MLProject/mlruns/ || true
-          if [ -f "MLProject/model_comparison_results.csv" ]; then
-            echo "✅ model_comparison_results.csv found"
-            cat MLProject/model_comparison_results.csv
-          else
-            echo "⚠️ model_comparison_results.csv not found"
-          fi
+          echo ""
+          echo "📁 MLProject/mlruns/0 directory (experiment):"
+          ls -la MLProject/mlruns/0/ 2>/dev/null || echo "No experiment found"
+          echo ""
           if [ -f "MLProject/training_${{ matrix.model }}.log" ]; then
             echo "✅ Log file found"
             echo "Last 10 lines of log:"
@@ -152,9 +154,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: model-${{ matrix.model }}
-          path: |
-            MLProject/mlruns/
-            MLProject/model_comparison_results.csv
+          path: MLProject/mlruns/
           retention-days: 30
           if-no-files-found: warn
       
@@ -184,47 +184,97 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pandas numpy matplotlib seaborn
+          pip install mlflow pandas numpy matplotlib seaborn
       
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts/
       
-      - name: Compare model results
+      - name: Extract metrics from MLflow runs
         run: |
           python -c "
+          import mlflow
           import pandas as pd
-          import os
           import glob
+          import os
           
-          # Find all result CSV files
-          csv_files = glob.glob('artifacts/**/model_comparison_results.csv', recursive=True)
+          print('='*70)
+          print('📊 EXTRACTING METRICS FROM MLFLOW RUNS')
+          print('='*70)
           
-          if csv_files:
-              # Combine results
-              dfs = [pd.read_csv(f) for f in csv_files]
-              combined = pd.concat(dfs, ignore_index=True)
-              combined = combined.sort_values('test_accuracy', ascending=False)
+          # Find all mlruns directories from artifacts
+          mlruns_dirs = glob.glob('artifacts/**/mlruns', recursive=True)
+          print(f'Found {len(mlruns_dirs)} mlruns directories')
+          
+          all_results = []
+          
+          for mlruns_dir in mlruns_dirs:
+              print(f'\\n📂 Processing: {mlruns_dir}')
               
+              # Set tracking URI to this mlruns directory
+              tracking_uri = f'file:///{os.path.abspath(mlruns_dir)}'
+              mlflow.set_tracking_uri(tracking_uri)
+              
+              # Get client
+              client = mlflow.tracking.MlflowClient()
+              
+              # List all experiments
+              experiments = client.search_experiments()
+              
+              for exp in experiments:
+                  print(f'   Experiment: {exp.name} (ID: {exp.experiment_id})')
+                  
+                  # Search all runs in this experiment
+                  runs = client.search_runs(
+                      experiment_ids=[exp.experiment_id],
+                      order_by=['start_time DESC']
+                  )
+                  
+                  for run in runs:
+                      run_name = run.data.tags.get('mlflow.runName', 'Unknown')
+                      metrics = run.data.metrics
+                      
+                      print(f'      Run: {run_name}')
+                      print(f'         Metrics: {list(metrics.keys())}')
+                      
+                      # Extract metrics
+                      result = {
+                          'model': run_name,
+                          'test_accuracy': metrics.get('test_accuracy', 0),
+                          'test_precision': metrics.get('test_precision', 0),
+                          'test_recall': metrics.get('test_recall', 0),
+                          'test_f1_score': metrics.get('test_f1_score', 0),
+                          'run_id': run.info.run_id
+                      }
+                      all_results.append(result)
+          
+          # Create DataFrame
+          if all_results:
+              df = pd.DataFrame(all_results)
+              df = df.sort_values('test_accuracy', ascending=False)
+              
+              print('\\n' + '='*70)
+              print('📊 MODEL COMPARISON FROM MLFLOW RUNS')
               print('='*70)
-              print('📊 MODEL COMPARISON RESULTS')
-              print('='*70)
-              print(combined.to_string(index=False))
+              print(df.to_string(index=False))
               print('='*70)
               
-              # Save combined results
-              combined.to_csv('final_model_comparison.csv', index=False)
+              # Save results
+              df.to_csv('final_model_comparison.csv', index=False)
+              print('\\n✅ Results saved to: final_model_comparison.csv')
               
               # Best model
-              best_model = combined.iloc[0]
-              print(f\"\\n🏆 BEST MODEL: {best_model['model']}\")
-              print(f\"   Accuracy: {best_model['test_accuracy']:.4f}\")
-              print(f\"   Precision: {best_model['test_precision']:.4f}\")
-              print(f\"   Recall: {best_model['test_recall']:.4f}\")
-              print(f\"   F1-Score: {best_model['test_f1_score']:.4f}\")
+              best = df.iloc[0]
+              print(f\"\\n🏆 BEST MODEL: {best['model']}\")
+              print(f\"   Accuracy: {best['test_accuracy']:.4f}\")
+              print(f\"   Precision: {best['test_precision']:.4f}\")
+              print(f\"   Recall: {best['test_recall']:.4f}\")
+              print(f\"   F1-Score: {best['test_f1_score']:.4f}\")
+              print(f\"   Run ID: {best['run_id']}\")
           else:
-              print('❌ No result files found!')
+              print('\\n❌ No MLflow runs found!')
+              exit(1)
           "
       
       - name: Upload final comparison

@@ -289,24 +289,14 @@ def main():
         results_df.to_csv(csv_path, index=False)
         print(f"\n✅ Results saved to: {csv_path}")
         
-        # Also save as JSON for easier parsing
-        json_path = os.path.join(script_dir, 'model_comparison_results.json')
-        results_df.to_json(json_path, orient='records', indent=2)
-        print(f"✅ Results also saved to: {json_path}")
-        
         # Verify files exist
         print(f"\n📂 Verifying output files:")
         print(f"   CSV exists: {os.path.exists(csv_path)}")
-        print(f"   JSON exists: {os.path.exists(json_path)}")
     else:
         print("\n⚠️  No models were trained successfully!")
     
     print("\n" + "="*70)
     print("🎉 TRAINING COMPLETED!")
-    print("="*70)
-    print(f"\n📂 To view MLflow UI, run:")
-    print(f"   mlflow ui --backend-store-uri file:///{mlflow_tracking_uri}")
-    print(f"\n   Then open: http://localhost:5000")
     print("="*70 + "\n")
 
 if __name__ == "__main__":
