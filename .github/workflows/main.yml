@@ -104,16 +104,10 @@ jobs:
           pip install mlflow
           pip install -r MLProject/requirements.txt
       
-      - name: Verify files before training
+      - name: Verify required files
         run: |
-          echo "📋 Checking required files..."
-          ls -la MLProject/
-          if [ ! -f "MLProject/MLproject" ]; then
-            echo "❌ MLproject file not found!"
-            exit 1
-          fi
-          if [ ! -f "MLProject/Heart_Disease_preprocessing.csv" ]; then
-            echo "❌ Dataset not found!"
+          if [ ! -f "MLProject/MLproject" ] || [ ! -f "MLProject/Heart_Disease_preprocessing.csv" ]; then
+            echo "❌ Required files not found!"
             exit 1
           fi
           echo "✅ All required files found"
@@ -130,23 +124,14 @@ jobs:
           MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
           MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
       
-      - name: Verify artifacts after training
+      - name: Verify training artifacts
         run: |
-          echo "📦 Checking generated artifacts..."
-          echo ""
-          echo "📁 MLProject directory:"
-          ls -la MLProject/ || true
-          echo ""
-          echo "📁 MLProject/mlruns directory:"
-          ls -la MLProject/mlruns/ || true
-          echo ""
-          echo "📁 MLProject/mlruns/0 directory (experiment):"
-          ls -la MLProject/mlruns/0/ 2>/dev/null || echo "No experiment found"
-          echo ""
+          echo "✅ Training completed for ${{ matrix.model }}"
+          if [ -d "MLProject/mlruns" ]; then
+            echo "✅ MLflow artifacts created"
+          fi
           if [ -f "MLProject/training_${{ matrix.model }}.log" ]; then
-            echo "✅ Log file found"
-            echo "Last 10 lines of log:"
-            tail -n 10 MLProject/training_${{ matrix.model }}.log
+            echo "✅ Training log created"
           fi
       
       - name: Upload model artifacts
