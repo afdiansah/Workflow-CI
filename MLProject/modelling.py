@@ -178,6 +178,11 @@ def main():
                       help='Model to train (default: all)')
     args = parser.parse_args()
     
+    # Get the script's directory (where modelling.py is located)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    print(f"📁 Script directory: {script_dir}")
+    print(f"📁 Current working directory: {os.getcwd()}")
+    
     print("\n" + "="*70)
     print("🎯 MACHINE LEARNING MODEL TRAINING WITH MLFLOW")
     print("="*70)
@@ -186,8 +191,8 @@ def main():
     print(f"Model Type: {args.model_type}")
     print("="*70 + "\n")
     
-    # Set MLflow tracking URI ke folder lokal
-    mlflow_tracking_uri = os.path.join(os.getcwd(), "mlruns")
+    # Set MLflow tracking URI ke folder lokal (use script directory)
+    mlflow_tracking_uri = os.path.join(script_dir, "mlruns")
     mlflow.set_tracking_uri(f"file:///{mlflow_tracking_uri}")
     print(f"📁 MLflow Tracking URI: {mlflow.get_tracking_uri()}")
     
@@ -204,8 +209,8 @@ def main():
     )
     print("✅ MLflow autolog enabled for sklearn\n")
     
-    # Load preprocessed data
-    preprocessed_path = os.path.join('Heart_Disease_preprocessing.csv')
+    # Load preprocessed data (use script directory for correct path)
+    preprocessed_path = os.path.join(script_dir, 'Heart_Disease_preprocessing.csv')
     X_train, X_test, y_train, y_test = load_preprocessed_data(preprocessed_path)
     
     # Define all available models
@@ -279,15 +284,20 @@ def main():
         print(results_df.to_string(index=False))
         print("="*70)
         
-        # Save results - ensure file is created in current directory
-        csv_path = 'model_comparison_results.csv'
+        # Save results - use script directory to ensure correct location
+        csv_path = os.path.join(script_dir, 'model_comparison_results.csv')
         results_df.to_csv(csv_path, index=False)
-        print(f"\n✅ Results saved to: {os.path.abspath(csv_path)}")
+        print(f"\n✅ Results saved to: {csv_path}")
         
         # Also save as JSON for easier parsing
-        json_path = 'model_comparison_results.json'
+        json_path = os.path.join(script_dir, 'model_comparison_results.json')
         results_df.to_json(json_path, orient='records', indent=2)
-        print(f"✅ Results also saved to: {os.path.abspath(json_path)}")
+        print(f"✅ Results also saved to: {json_path}")
+        
+        # Verify files exist
+        print(f"\n📂 Verifying output files:")
+        print(f"   CSV exists: {os.path.exists(csv_path)}")
+        print(f"   JSON exists: {os.path.exists(json_path)}")
     else:
         print("\n⚠️  No models were trained successfully!")
     

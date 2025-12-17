@@ -327,36 +327,93 @@ jobs:
       - name: Find best model
         id: best-model
         run: |
+          echo "📂 Checking artifacts structure..."
+          echo ""
+          echo "📁 Top-level artifacts:"
+          ls -la artifacts/
+          echo ""
+          echo "📁 Looking for CSV files:"
+          find artifacts -name "*.csv" -type f 2>/dev/null || echo "No CSV files found"
+          echo ""
+          echo "📁 Looking for JSON files:"
+          find artifacts -name "*.json" -type f 2>/dev/null || echo "No JSON files found"
+          echo ""
+          echo "📁 Sample artifact structure (model-Random_Forest):"
+          find artifacts/model-Random_Forest -type f 2>/dev/null | head -20 || echo "Folder not found"
+          echo ""
+          
           python -c "
           import pandas as pd
           import glob
           import os
           
+          print('🔍 Searching for model results...')
+          
+          # Try to find CSV files
           csv_files = glob.glob('artifacts/**/model_comparison_results.csv', recursive=True)
           
           if csv_files:
+              print(f'✅ Found {len(csv_files)} CSV files')
+              for f in csv_files:
+                  print(f'  - {f}')
               dfs = [pd.read_csv(f) for f in csv_files]
               combined = pd.concat(dfs, ignore_index=True)
-              combined = combined.sort_values('test_accuracy', ascending=False)
-              
-              best_model = combined.iloc[0]['model']
-              best_accuracy = combined.iloc[0]['test_accuracy']
-              
-              # Sanitize model name for Docker tag
-              model_tag = best_model.lower().replace('_', '-')
-              
-              print(f'Best model: {best_model}')
-              print(f'Accuracy: {best_accuracy}')
-              print(f'Docker tag: {model_tag}')
-              
-              # Write to GitHub output
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write(f'model_name={best_model}\n')
-                  f.write(f'model_tag={model_tag}\n')
-                  f.write(f'accuracy={best_accuracy}\n')
           else:
-              print('No results found!')
-              exit(1)
+              print('⚠️  No CSV files found')
+              
+              # Try JSON files
+              json_files = glob.glob('artifacts/**/model_comparison_results.json', recursive=True)
+              if json_files:
+                  print(f'✅ Found {len(json_files)} JSON files')
+                  import json
+                  all_data = []
+                  for f in json_files:
+                      with open(f, 'r') as jf:
+                          data = json.load(jf)
+                          if isinstance(data, list):
+                              all_data.extend(data)
+                          else:
+                              all_data.append(data)
+                  combined = pd.DataFrame(all_data)
+              else:
+                  print('⚠️  No JSON files found either')
+                  print('')
+                  print('📂 Full artifacts structure:')
+                  for root, dirs, files in os.walk('artifacts'):
+                      level = root.replace('artifacts', '').count(os.sep)
+                      indent = '  ' * level
+                      print(f'{indent}{os.path.basename(root)}/')
+                      subindent = '  ' * (level + 1)
+                      for file in files[:10]:  # Limit files shown
+                          print(f'{subindent}{file}')
+                      if len(files) > 10:
+                          print(f'{subindent}... and {len(files)-10} more files')
+                  
+                  print('')
+                  print('❌ No results found! CSV and JSON files were not uploaded.')
+                  print('Check the train job logs for errors.')
+                  exit(1)
+          
+          combined = combined.sort_values('test_accuracy', ascending=False)
+          
+          print('')
+          print('📊 Combined Results:')
+          print(combined.to_string(index=False))
+          
+          best_model = combined.iloc[0]['model']
+          best_accuracy = combined.iloc[0]['test_accuracy']
+          
+          model_tag = best_model.lower().replace('_', '-')
+          
+          print(f'')
+          print(f'🏆 Best model: {best_model}')
+          print(f'   Accuracy: {best_accuracy:.4f}')
+          print(f'   Docker tag: {model_tag}')
+          
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'model_name={best_model}\n')
+              f.write(f'model_tag={model_tag}\n')
+              f.write(f'accuracy={best_accuracy}\n')
           "
       
       - name: Prepare model for Docker
