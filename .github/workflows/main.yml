@@ -203,35 +203,23 @@ jobs:
           print('📊 EXTRACTING METRICS FROM MLFLOW RUNS')
           print('='*70)
           
-          # Debug: List artifact structure
-          print('\\n📁 Artifact structure:')
-          for root, dirs, files in os.walk('artifacts'):
-              level = root.replace('artifacts', '').count(os.sep)
-              indent = ' ' * 2 * level
-              print(f'{indent}{os.path.basename(root)}/')
-              if level < 2:  # Only show first 2 levels
-                  subindent = ' ' * 2 * (level + 1)
-                  for dir_name in dirs[:5]:  # Show first 5 dirs
-                      print(f'{subindent}{dir_name}/')
+          # Find all model artifact directories (langsung dari artifacts/model-*)
+          model_dirs = glob.glob('artifacts/model-*')
           
-          # Find all mlruns directories from artifacts (fixed pattern)
-          mlruns_dirs = []
-          for root, dirs, files in os.walk('artifacts'):
-              if 'mlruns' in dirs:
-                  mlruns_dirs.append(os.path.join(root, 'mlruns'))
-          
-          print(f'\\n📂 Found {len(mlruns_dirs)} mlruns directories:')
-          for d in mlruns_dirs:
+          print(f'\\n📂 Found {len(model_dirs)} model directories:')
+          for d in model_dirs:
               print(f'   - {d}')
           
           all_results = []
           
-          for mlruns_dir in mlruns_dirs:
-              print(f'\\n📂 Processing: {mlruns_dir}')
+          for model_dir in model_dirs:
+              print(f'\\n📂 Processing: {model_dir}')
               
-              # Set tracking URI to this mlruns directory
-              tracking_uri = f'file:///{os.path.abspath(mlruns_dir)}'
+              # Set tracking URI langsung ke model directory
+              tracking_uri = f'file:///{os.path.abspath(model_dir)}'
               mlflow.set_tracking_uri(tracking_uri)
+              
+              print(f'   Tracking URI: {tracking_uri}')
               
               # Get client
               client = mlflow.tracking.MlflowClient()
@@ -239,6 +227,7 @@ jobs:
               # List all experiments
               try:
                   experiments = client.search_experiments()
+                  print(f'   Found {len(experiments)} experiments')
               except Exception as e:
                   print(f'   ⚠️ Error listing experiments: {e}')
                   continue
@@ -255,6 +244,7 @@ jobs:
                           experiment_ids=[exp.experiment_id],
                           order_by=['start_time DESC']
                       )
+                      print(f'      Found {len(runs)} runs')
                   except Exception as e:
                       print(f'      ⚠️ Error searching runs: {e}')
                       continue
@@ -264,7 +254,7 @@ jobs:
                       metrics = run.data.metrics
                       
                       print(f'      📊 Run: {run_name}')
-                      print(f'         Metrics: {list(metrics.keys())[:10]}')
+                      print(f'         Metrics: {metrics}')
                       
                       # Extract metrics
                       result = {
@@ -307,7 +297,7 @@ jobs:
           else:
               print('\\n❌ No MLflow runs found!')
               print('\\n🔍 Troubleshooting:')
-              print('   1. Check if mlruns directories exist in artifacts')
+              print('   1. Check if model directories exist in artifacts')
               print('   2. Verify MLflow tracking was successful during training')
               print('   3. Check training logs for errors')
               exit(1)
