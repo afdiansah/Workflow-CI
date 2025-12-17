@@ -1,4 +1,4 @@
-name: ML Training Pipeline
+name: ML Training Pipeline (MLflow Project)
 
 on:
   push:
@@ -15,58 +15,14 @@ on:
     paths:
       - 'MLProject/**'
   workflow_dispatch:
-    inputs:
-      model_type:
-        description: 'Model to train (all, Logistic_Regression, Random_Forest, Gradient_Boosting, Decision_Tree, K_Nearest_Neighbors, Support_Vector_Machine)'
-        required: false
-        default: 'all'
 
 permissions:
   contents: write
   actions: read
 
 jobs:
-  setup:
-    name: Setup Environment
-    runs-on: ubuntu-latest
-    outputs:
-      python-version: ${{ steps.setup-python.outputs.python-version }}
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up Python 3.12.7
-        id: setup-python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12.7'
-      
-      - name: Cache pip dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('MLProject/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-      
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r MLProject/requirements.txt
-      
-      - name: Verify dataset
-        run: |
-          if [ ! -f "MLProject/Heart_Disease_preprocessing.csv" ]; then
-            echo "❌ Dataset not found!"
-            exit 1
-          fi
-          echo "✅ Dataset found"
-          python -c "import pandas as pd; df = pd.read_csv('MLProject/Heart_Disease_preprocessing.csv'); print(f'Dataset shape: {df.shape}')"
-
   train:
-    name: Train ML Models
-    needs: setup
+    name: Train ML Models with MLflow
     runs-on: ubuntu-latest
     
     strategy:
@@ -98,21 +54,43 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
       
-      - name: Install dependencies
+      - name: Install MLflow and dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install mlflow>=2.0.0
           pip install -r MLProject/requirements.txt
       
-      - name: Train model - ${{ matrix.model }}
+      - name: Verify MLProject configuration
         run: |
+          echo "📋 Checking MLProject file..."
+          if [ ! -f "MLProject/MLproject" ]; then
+            echo "❌ MLproject file not found!"
+            exit 1
+          fi
+          echo "✅ MLproject file found"
+          cat MLProject/MLproject
+          
+          echo ""
+          echo "📊 Checking dataset..."
+          if [ ! -f "MLProject/Heart_Disease_preprocessing.csv" ]; then
+            echo "❌ Dataset not found!"
+            exit 1
+          fi
+          echo "✅ Dataset found"
+      
+      - name: Run MLflow Project - ${{ matrix.model }}
+        run: |
+          echo "🚀 Running MLflow Project for model: ${{ matrix.model }}"
           cd MLProject
-          python modelling.py --model ${{ matrix.model }}
+          RUN_ID=$(mlflow run . -P model=${{ matrix.model }} --env-manager=local 2>&1 | tee /dev/stderr | grep -oP 'Run ID: \K[a-f0-9]+' | tail -1)
+          echo "✅ Training completed with Run ID: $RUN_ID"
+          echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
         env:
           MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
           MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
           MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
       
-      - name: Upload model artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: model-${{ matrix.model }}
@@ -120,18 +98,10 @@ jobs:
             MLProject/mlruns/
             MLProject/model_comparison_results.csv
           retention-days: 30
-      
-      - name: Upload training logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: logs-${{ matrix.model }}
-          path: MLProject/*.log
-          retention-days: 7
           if-no-files-found: ignore
 
   evaluate:
-    name: Evaluate and Compare Models
+    name: Evaluate Models
     needs: train
     runs-on: ubuntu-latest
     
@@ -139,36 +109,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Set up Python 3.12.7
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12.7'
       
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pandas numpy matplotlib seaborn
+        run: pip install pandas
       
-      - name: Download all artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts/
       
-      - name: Compare model results
+      - name: Compare results
         run: |
           python -c "
           import pandas as pd
-          import os
           import glob
           
-          # Find all result CSV files
           csv_files = glob.glob('artifacts/**/model_comparison_results.csv', recursive=True)
           
           if csv_files:
-              # Combine results
               dfs = [pd.read_csv(f) for f in csv_files]
-              combined = pd.concat(dfs, ignore_index=True)
-              combined = combined.sort_values('test_accuracy', ascending=False)
+              combined = pd.concat(dfs, ignore_index=True).sort_values('test_accuracy', ascending=False)
               
               print('='*70)
               print('📊 MODEL COMPARISON RESULTS')
@@ -176,349 +140,53 @@ jobs:
               print(combined.to_string(index=False))
               print('='*70)
               
-              # Save combined results
-              combined.to_csv('final_model_comparison.csv', index=False)
+              combined.to_csv('final_results.csv', index=False)
               
-              # Best model
-              best_model = combined.iloc[0]
-              print(f\"\\n🏆 BEST MODEL: {best_model['model']}\")
-              print(f\"   Accuracy: {best_model['test_accuracy']:.4f}\")
-              print(f\"   Precision: {best_model['test_precision']:.4f}\")
-              print(f\"   Recall: {best_model['test_recall']:.4f}\")
-              print(f\"   F1-Score: {best_model['test_f1_score']:.4f}\")
+              best = combined.iloc[0]
+              print(f\"\\n🏆 BEST MODEL: {best['model']}\")
+              print(f\"   Accuracy: {best['test_accuracy']:.4f}\")
+              print(f\"   F1-Score: {best['test_f1_score']:.4f}\")
           else:
-              print('❌ No result files found!')
+              print('❌ No results found!')
+              exit(1)
           "
       
-      - name: Upload final comparison
+      - name: Upload final results
         uses: actions/upload-artifact@v4
         with:
-          name: final-comparison
-          path: final_model_comparison.csv
+          name: final-results
+          path: final_results.csv
           retention-days: 90
       
       - name: Create summary
         run: |
-          echo "## 🎯 ML Training Pipeline Results" >> $GITHUB_STEP_SUMMARY
+          echo "## 🎯 MLflow Project Training Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Models Trained:" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Logistic Regression" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Random Forest" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Gradient Boosting" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Decision Tree" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ K-Nearest Neighbors" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Support Vector Machine" >> $GITHUB_STEP_SUMMARY
+          echo "### Training Method: \`mlflow run\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          if [ -f "final_model_comparison.csv" ]; then
-            echo "### 📊 Model Performance:" >> $GITHUB_STEP_SUMMARY
+          if [ -f "final_results.csv" ]; then
+            echo "### 📊 Performance:" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            cat final_model_comparison.csv >> $GITHUB_STEP_SUMMARY
+            cat final_results.csv >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
-      
-      - name: Prepare artifacts for commit
-        run: |
-          mkdir -p artifacts_permanent
-          
-          # Copy final comparison
-          if [ -f "final_model_comparison.csv" ]; then
-            cp final_model_comparison.csv artifacts_permanent/
-          fi
-          
-          # Copy all downloaded artifacts
-          if [ -d "artifacts" ]; then
-            cp -r artifacts/* artifacts_permanent/
-          fi
-          
-          # Create timestamp and metadata
-          echo "# Training Run - $(date '+%Y-%m-%d %H:%M:%S')" > artifacts_permanent/README.md
-          echo "" >> artifacts_permanent/README.md
-          echo "**Commit:** ${{ github.sha }}" >> artifacts_permanent/README.md
-          echo "**Branch:** ${{ github.ref_name }}" >> artifacts_permanent/README.md
-          echo "**Workflow:** ${{ github.run_id }}" >> artifacts_permanent/README.md
-          echo "**Triggered by:** ${{ github.actor }}" >> artifacts_permanent/README.md
-          echo "" >> artifacts_permanent/README.md
-          echo "## Results" >> artifacts_permanent/README.md
-          if [ -f "final_model_comparison.csv" ]; then
-            echo '```' >> artifacts_permanent/README.md
-            cat final_model_comparison.csv >> artifacts_permanent/README.md
-            echo '```' >> artifacts_permanent/README.md
-          fi
-      
-      - name: Commit artifacts to artifacts branch
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Checkout or create artifacts branch
-          git fetch origin artifacts || true
-          git checkout -B artifacts || git checkout --orphan artifacts
-          
-          # Clear existing content (keep only new artifacts)
-          git rm -rf . || true
-           
-          # Copy new artifacts
-          cp -r artifacts_permanent/* . 2>/dev/null || echo "No artifacts to copy"
-          
-          # Commit and push with token
-          git add . || true
-          git commit -m "🤖 Auto-commit: Training artifacts from run ${{ github.run_id }}" || echo "No changes to commit"
-          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git artifacts --force || echo "Push failed"
-
-  docker:
-    name: Build and Push Docker Image
-    needs: evaluate
-    runs-on: ubuntu-latest
-    if: success()
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Verify Docker Hub credentials
-        run: |
-          if [ -z "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
-            echo "❌ DOCKERHUB_USERNAME secret is not set!"
-            echo "Please add it in: Repository → Settings → Secrets and variables → Actions"
-            echo ""
-            echo "To skip Docker build, this is normal - training will still complete successfully."
-            exit 1
-          fi
-          
-          if [ -z "${{ secrets.DOCKER_PASSWORD }}" ]; then
-            echo "❌ DOCKER_PASSWORD secret is not set!"
-            echo "Please add it in: Repository → Settings → Secrets and variables → Actions"
-            echo ""
-            echo "To skip Docker build, this is normal - training will still complete successfully."
-            exit 1
-          fi
-          
-          echo "✅ Docker Hub credentials are configured"
-      
-      - name: Set up Python 3.12.7
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12.7'
-      
-      - name: Install MLflow
-        run: |
-          python -m pip install --upgrade pip
-          pip install mlflow==2.19.0 boto3
-      
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts/
-      
-      - name: Find best model
-        id: best-model
-        run: |
-          python -c "
-          import pandas as pd
-          import glob
-          import os
-          
-          csv_files = glob.glob('artifacts/**/model_comparison_results.csv', recursive=True)
-          
-          if csv_files:
-              dfs = [pd.read_csv(f) for f in csv_files]
-              combined = pd.concat(dfs, ignore_index=True)
-              combined = combined.sort_values('test_accuracy', ascending=False)
-              
-              best_model = combined.iloc[0]['model']
-              best_accuracy = combined.iloc[0]['test_accuracy']
-              
-              # Sanitize model name for Docker tag
-              model_tag = best_model.lower().replace('_', '-')
-              
-              print(f'Best model: {best_model}')
-              print(f'Accuracy: {best_accuracy}')
-              print(f'Docker tag: {model_tag}')
-              
-              # Write to GitHub output
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write(f'model_name={best_model}\n')
-                  f.write(f'model_tag={model_tag}\n')
-                  f.write(f'accuracy={best_accuracy}\n')
-          else:
-              print('No results found!')
-              exit(1)
-          "
-      
-      - name: Prepare model for Docker
-        run: |
-          MODEL_NAME="${{ steps.best-model.outputs.model_name }}"
-          echo "🔧 Preparing model: $MODEL_NAME"
-          
-          # Create directory for model
-          mkdir -p model_to_deploy
-          
-          echo "📦 Extracting model artifacts..."
-          # Find model artifacts from the specific model
-          MODEL_ARTIFACT_DIR=$(find artifacts/model-${MODEL_NAME} -type d -path "*/artifacts/model" | head -1)
-          
-          if [ -z "$MODEL_ARTIFACT_DIR" ]; then
-            echo "❌ Model artifacts not found for $MODEL_NAME"
-            echo "Searching in all artifacts..."
-            find artifacts -name "MLmodel" -type f
-            exit 1
-          fi
-          
-          echo "✅ Found model at: $MODEL_ARTIFACT_DIR"
-          
-          # Copy model artifacts
-          cp -r "$MODEL_ARTIFACT_DIR" model_to_deploy/
-          
-          echo ""
-          echo "📂 Model structure:"
-          ls -la model_to_deploy/model/
-          
-          echo ""
-          echo "📄 MLmodel file:"
-          cat model_to_deploy/model/MLmodel
-      
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-      
-      - name: Build Docker image with MLflow
-        env:
-          MODEL_NAME: ${{ steps.best-model.outputs.model_name }}
-          MODEL_TAG: ${{ steps.best-model.outputs.model_tag }}
-          DOCKER_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-        run: |
-          echo "🐳 Building Docker image for: $MODEL_NAME"
-          
-          # Build Docker image using MLflow with local model path
-          IMAGE_NAME="${DOCKER_USERNAME}/heart-disease-model"
-          IMAGE_TAG="${MODEL_TAG}-$(date +%Y%m%d)"
-          
-          echo ""
-          echo "📦 Image details:"
-          echo "   Name: ${IMAGE_NAME}"
-          echo "   Tag: ${IMAGE_TAG}"
-          echo "   Model path: $(pwd)/model_to_deploy/model"
-          
-          # Build using local model path (not runs URI)
-          echo ""
-          echo "🔨 Building Docker image..."
-          mlflow models build-docker \
-            --model-uri "$(pwd)/model_to_deploy/model" \
-            --name "${IMAGE_NAME}"
-          
-          echo "✅ Docker image built successfully"
-          
-          # Tag with version and latest
-          echo ""
-          echo "🏷️  Tagging images..."
-          docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}"
-          docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${MODEL_TAG}"
-          
-          echo "✅ Tags created:"
-          echo "   - ${IMAGE_NAME}:latest"
-          echo "   - ${IMAGE_NAME}:${IMAGE_TAG}"
-          echo "   - ${IMAGE_NAME}:${MODEL_TAG}"
-          
-          # Save to env for next step
-          echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
-          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
-      
-      - name: Push Docker image to Docker Hub
-        env:
-          IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          IMAGE_TAG: ${{ env.IMAGE_TAG }}
-          MODEL_TAG: ${{ steps.best-model.outputs.model_tag }}
-        run: |
-          echo "Pushing Docker images to Docker Hub..."
-          
-          # Push all tags
-          docker push ${IMAGE_NAME}:latest
-          docker push ${IMAGE_NAME}:${IMAGE_TAG}
-          docker push ${IMAGE_NAME}:${MODEL_TAG}
-          
-          echo "✅ Docker images pushed successfully!"
-          echo "   - ${IMAGE_NAME}:latest"
-          echo "   - ${IMAGE_NAME}:${IMAGE_TAG}"
-          echo "   - ${IMAGE_NAME}:${MODEL_TAG}"
-      
-      - name: Create Docker summary
-        env:
-          IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          IMAGE_TAG: ${{ env.IMAGE_TAG }}
-          MODEL_NAME: ${{ steps.best-model.outputs.model_name }}
-          ACCURACY: ${{ steps.best-model.outputs.accuracy }}
-        run: |
-          echo "## 🐳 Docker Image Published" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Model:** ${MODEL_NAME}" >> $GITHUB_STEP_SUMMARY
-          echo "**Accuracy:** ${ACCURACY}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Docker Images:" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${IMAGE_NAME}:latest" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${IMAGE_NAME}:${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Run Container:" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "docker run -p 8080:8080 ${IMAGE_NAME}:latest" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
 
   notify:
-    name: Notification
-    needs: [train, evaluate, docker]
+    name: Pipeline Status
+    needs: [train, evaluate]
     runs-on: ubuntu-latest
     if: always()
     
     steps:
-      - name: Training Success Notification
+      - name: Success notification
         if: needs.train.result == 'success' && needs.evaluate.result == 'success'
         run: |
-          echo "✅ All models trained successfully!"
-          echo "📊 Evaluation completed!"
+          echo "✅ All models trained successfully using MLflow Project!"
+          echo "📊 Results available in artifacts"
       
-      - name: Docker Success Notification
-        if: needs.docker.result == 'success'
-        run: |
-          echo "🐳 Docker image pushed to Docker Hub!"
-      
-      - name: Docker Skipped Notification
-        if: needs.docker.result == 'skipped'
-        run: |
-          echo "⚠️ Docker build was skipped"
-          echo ""
-          echo "Possible reasons:"
-          echo "  1. DOCKER_USERNAME secret not set"
-          echo "  2. DOCKER_PASSWORD secret not set"
-          echo ""
-          echo "To enable Docker deployment:"
-          echo "  1. Go to: Repository → Settings → Secrets and variables → Actions"
-          echo "  2. Add secret: DOCKER_USERNAME (your Docker Hub username)"
-          echo "  3. Add secret: DOCKER_PASSWORD (your Docker Hub access token)"
-          echo ""
-          echo "📖 See DOCKER_SETUP.md for detailed instructions"
-      
-      - name: Training Failure Notification
+      - name: Failure notification
         if: needs.train.result == 'failure' || needs.evaluate.result == 'failure'
         run: |
-          echo "❌ Training or evaluation failed!"
-          echo "Please check the logs for details."
+          echo "❌ Pipeline failed!"
           exit 1
-      
-      - name: Docker Failure Notification
-        if: needs.docker.result == 'failure'
-        run: |
-          echo "⚠️ Docker build/push failed!"
-          echo "Training was successful but Docker image not created."
-          echo ""
-          echo "Common issues:"
-          echo "  1. Check DOCKER_USERNAME and DOCKER_PASSWORD secrets"
-          echo "  2. Verify Docker Hub access token has correct permissions"
-          echo "  3. Check Docker Hub storage quota"
-          echo "  4. Review workflow logs for specific error"
