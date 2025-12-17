@@ -104,16 +104,51 @@ jobs:
           pip install mlflow
           pip install -r MLProject/requirements.txt
       
+      - name: Verify files before training
+        run: |
+          echo "📋 Checking required files..."
+          ls -la MLProject/
+          if [ ! -f "MLProject/MLproject" ]; then
+            echo "❌ MLproject file not found!"
+            exit 1
+          fi
+          if [ ! -f "MLProject/Heart_Disease_preprocessing.csv" ]; then
+            echo "❌ Dataset not found!"
+            exit 1
+          fi
+          echo "✅ All required files found"
+      
       - name: Train model - ${{ matrix.model }}
         run: |
           cd MLProject
-          mlflow run . -P model_type=${{ matrix.model }} --env-manager=local
+          echo "🚀 Starting training for: ${{ matrix.model }}"
+          echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting MLflow training for ${{ matrix.model }}" > training_${{ matrix.model }}.log
+          mlflow run . -P model_type=${{ matrix.model }} --env-manager=local 2>&1 | tee -a training_${{ matrix.model }}.log
+          echo "$(date '+%Y-%m-%d %H:%M:%S') - Training completed for ${{ matrix.model }}" >> training_${{ matrix.model }}.log
         env:
           MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
           MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
           MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
       
+      - name: Verify artifacts after training
+        run: |
+          echo "📦 Checking generated artifacts..."
+          ls -la MLProject/ || true
+          ls -la MLProject/mlruns/ || true
+          if [ -f "MLProject/model_comparison_results.csv" ]; then
+            echo "✅ model_comparison_results.csv found"
+            cat MLProject/model_comparison_results.csv
+          else
+            echo "⚠️ model_comparison_results.csv not found"
+          fi
+          if [ -f "MLProject/training_${{ matrix.model }}.log" ]; then
+            echo "✅ Log file found"
+            echo "Last 10 lines of log:"
+            tail -n 10 MLProject/training_${{ matrix.model }}.log
+          fi
+      
       - name: Upload model artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: model-${{ matrix.model }}
@@ -121,15 +156,16 @@ jobs:
             MLProject/mlruns/
             MLProject/model_comparison_results.csv
           retention-days: 30
+          if-no-files-found: warn
       
       - name: Upload training logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: logs-${{ matrix.model }}
-          path: MLProject/*.log
+          path: MLProject/training_${{ matrix.model }}.log
           retention-days: 7
-          if-no-files-found: ignore
+          if-no-files-found: warn
 
   evaluate:
     name: Evaluate and Compare Models
@@ -192,11 +228,13 @@ jobs:
           "
       
       - name: Upload final comparison
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: final-comparison
           path: final_model_comparison.csv
           retention-days: 90
+          if-no-files-found: warn
       
       - name: Create summary
         run: |
