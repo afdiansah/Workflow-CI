@@ -491,19 +491,25 @@ jobs:
               best = df.iloc[0]
               best_model = best['model']
               best_accuracy = best['accuracy']
-              model_tag = best_model.lower().replace('_', '-')
+              best_model_dir = best['model_dir']
               
-              print(f\"\\n🏆 BEST MODEL: {best_model}\")
-              print(f\"   Accuracy: {best_accuracy:.4f}\")
-              print(f\"   Docker tag: {model_tag}\")
-              print(f\"   Model directory: {best['model_dir']}\")
+              # Extract model type from directory name (artifacts/model-XXXX)
+              model_type = best_model_dir.split('model-')[-1]
+              model_tag = model_type.lower().replace('_', '-')
+              
+              print(f"\n🏆 BEST MODEL: {best_model}")
+              print(f"   Model Type: {model_type}")
+              print(f"   Accuracy: {best_accuracy:.4f}")
+              print(f"   Docker tag: {model_tag}")
+              print(f"   Model directory: {best_model_dir}")
               print('='*70)
               
               # Write to GitHub output
               with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write(f\"model_name={best_model}\\n\")
-                  f.write(f\"model_tag={model_tag}\\n\")
-                  f.write(f\"accuracy={best_accuracy}\\n\")
+                  f.write(f"model_name={model_type}\n")
+                  f.write(f"model_tag={model_tag}\n")
+                  f.write(f"accuracy={best_accuracy}\n")
+                  f.write(f"model_dir={best_model_dir}\n")
           else:
               print('\\n❌ No models found!')
               exit(1)
@@ -512,14 +518,16 @@ jobs:
       - name: Prepare model for Docker
         run: |
           MODEL_NAME="${{ steps.best-model.outputs.model_name }}"
+          MODEL_DIR="${{ steps.best-model.outputs.model_dir }}"
           echo "🔧 Preparing model: $MODEL_NAME"
+          echo "📂 Model directory: $MODEL_DIR"
           
           # Create directory for model
           mkdir -p model_to_deploy
           
           echo "📦 Extracting model artifacts..."
-          # Find model artifacts from the specific model
-          MODEL_ARTIFACT_DIR=$(find artifacts/model-${MODEL_NAME} -type d -path "*/artifacts/model" | head -1)
+          # Find model artifacts from the specific model directory
+          MODEL_ARTIFACT_DIR=$(find ${MODEL_DIR} -type d -path "*/artifacts/model" | head -1)
           
           if [ -z "$MODEL_ARTIFACT_DIR" ]; then
             echo "❌ Model artifacts not found for $MODEL_NAME"
