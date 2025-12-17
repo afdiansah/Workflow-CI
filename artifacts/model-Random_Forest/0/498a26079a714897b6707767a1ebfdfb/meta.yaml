@@ -1,0 +1,15 @@
+artifact_uri: file:///home/runner/work/Workflow-CI/Workflow-CI/MLProject/mlruns/0/498a26079a714897b6707767a1ebfdfb/artifacts
+end_time: 1765957896002
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 498a26079a714897b6707767a1ebfdfb
+run_name: rogue-fox-313
+run_uuid: 498a26079a714897b6707767a1ebfdfb
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1765957893064
+status: 3
+tags: []
+user_id: runner

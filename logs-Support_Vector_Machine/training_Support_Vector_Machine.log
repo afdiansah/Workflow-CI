@@ -1,0 +1,51 @@
+2025-12-17 07:52:15 - Starting MLflow training for Support_Vector_Machine
+2025/12/17 07:52:17 INFO mlflow.projects.utils: === Created directory /tmp/tmp42b_osvp for downloading remote URIs passed to arguments of type 'path' ===
+2025/12/17 07:52:17 INFO mlflow.projects.backend.local: === Running command 'python modelling.py --model_type Support_Vector_Machine' in run with ID '35a179329a6546a2b1eddf0a99afe357' === 
+2025/12/17 07:52:19 INFO mlflow.tracking.fluent: Experiment with name 'Heart_Disease_Classification' does not exist. Creating a new experiment.
+📁 Script directory: /home/runner/work/Workflow-CI/Workflow-CI/MLProject
+📁 Current working directory: /home/runner/work/Workflow-CI/Workflow-CI/MLProject
+
+======================================================================
+🎯 MACHINE LEARNING MODEL TRAINING WITH MLFLOW
+======================================================================
+Dataset: Heart Disease
+Author: Raifal Bagus Afdiansah
+Model Type: Support_Vector_Machine
+======================================================================
+
+📁 MLflow Tracking URI: file:////home/runner/work/Workflow-CI/Workflow-CI/MLProject/mlruns
+🧪 Experiment Name: Heart_Disease_Classification
+
+✅ MLflow autolog enabled for sklearn
+
+======================================================================
+📊 LOADING PREPROCESSED DATA
+======================================================================
+✅ Dataset loaded: (270, 15)
+Columns: ['Age', 'Sex', 'Chest pain type', 'BP', 'Cholesterol', 'FBS over 120', 'EKG results', 'Max HR', 'Exercise angina', 'ST depression', 'Slope of ST', 'Number of vessels fluro', 'Thallium', 'Heart Disease', 'split']
+
+✅ Training set: (216, 13)
+✅ Testing set: (54, 13)
+
+🎯 Training target distribution:
+Heart Disease
+0    120
+1     96
+Name: count, dtype: int64
+
+🎯 Testing target distribution:
+Heart Disease
+0    30
+1    24
+Name: count, dtype: int64
+======================================================================
+❌ Error training Support_Vector_Machine: Cannot start run with ID 35a179329a6546a2b1eddf0a99afe357 because active run ID does not match environment run ID. Make sure --experiment-name or --experiment-id matches experiment set with set_experiment(), or just use command-line arguments
+
+⚠️  No models were trained successfully!
+
+======================================================================
+🎉 TRAINING COMPLETED!
+======================================================================
+
+2025/12/17 07:52:20 INFO mlflow.projects: === Run (ID '35a179329a6546a2b1eddf0a99afe357') succeeded ===
+2025-12-17 07:52:20 - Training completed for Support_Vector_Machine
