@@ -61,21 +61,16 @@ jobs:
     - name: Run MLflow Project - ${{ matrix.model }}
       run: |
         cd MLProject
+        echo "🚀 Starting MLflow training for: ${{ matrix.model }}"
         mlflow run . \
           --env-manager=local \
           --experiment-name "Heart-Disease-CI" \
           -P model=${{ matrix.model }}
+        echo "✅ Training completed successfully"
       env:
         MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
         MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
         MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
-    
-    - name: Get latest MLflow run ID
-      run: |
-        cd MLProject
-        RUN_ID=$(python -c "import mlflow; client = mlflow.tracking.MlflowClient(); runs = client.search_runs(experiment_ids=['0'], order_by=['start_time DESC'], max_results=1); print(runs[0].info.run_id if runs else 'No runs found')")
-        echo "Latest MLflow Run ID: $RUN_ID"
-        echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
     
     - name: Upload MLflow artifacts to GitHub
       uses: actions/upload-artifact@v4
