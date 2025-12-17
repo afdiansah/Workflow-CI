@@ -101,12 +101,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install mlflow
           pip install -r MLProject/requirements.txt
       
       - name: Train model - ${{ matrix.model }}
         run: |
           cd MLProject
-          mlflow run . -P model_type=${{ matrix.model }}
+          mlflow run . -P model_type=${{ matrix.model }} --env-manager=local
         env:
           MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
           MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
